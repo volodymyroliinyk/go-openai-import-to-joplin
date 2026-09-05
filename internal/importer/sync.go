@@ -122,6 +122,15 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 			return r, fmt.Errorf("invalid conversation ID: %q", chat.ID)
 		}
 	}
+	// Validate every cached folder before any writes. State is only a cache,
+	// not authority to rename or move an existing Joplin folder.
+	for project, p := range s.Projects {
+		if f, ok := byID[p.ID]; ok {
+			if f.ID == root || f.ParentID != root || f.Title != first(p.Title, "ChatGPT project "+project) {
+				return r, fmt.Errorf("unsafe project notebook mapping for %q: folder %s; restore the state mapping or remove it to create a new notebook", project, f.ID)
+			}
+		}
+	}
 	ordered := append([]Chat(nil), chats...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		a, b := ordered[i], ordered[j]
@@ -142,7 +151,7 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 			p := s.Projects[chat.ProjectID]
 			title := first(chat.ProjectName, "ChatGPT project "+chat.ProjectID)
 			f, ok := byID[p.ID]
-			if !ok {
+			if !ok || f.Title != title {
 				f, e = c.CreateFolder(ctx, Folder{Title: title, ParentID: root})
 				if e != nil {
 					return r, e
@@ -151,12 +160,6 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 					return r, fmt.Errorf("Joplin returned folder without ID")
 				}
 				r.FoldersCreated++
-			} else if f.Title != title || f.ParentID != root {
-				f.Title = title
-				f.ParentID = root
-				if e = c.UpdateFolder(ctx, f); e != nil {
-					return r, e
-				}
 			}
 			byID[f.ID] = f
 			s.Projects[chat.ProjectID] = projectState{f.ID, chat.ProjectName}

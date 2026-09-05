@@ -78,7 +78,7 @@ func TestSyncChangeDetection(t *testing.T) {
 	c[0].Title = "Renamed"
 	c[0].ProjectName = "New project name"
 	r = syncTest(t, f, c, p)
-	if r.Updated != 1 || f.folderPuts != 1 {
+	if r.Updated != 1 || f.folderPuts != 0 || r.FoldersCreated != 1 {
 		t.Fatal(r)
 	}
 	c[0].ProjectID = ""
@@ -180,5 +180,50 @@ func TestSyncRejectsMalformedFirstMarker(t *testing.T) {
 		if err == nil || len(f.notes) != 1 || f.puts != 0 {
 			t.Fatal("accepted malformed marker")
 		}
+	}
+}
+
+func TestSyncRejectsUnsafeProjectMappingsBeforeWrites(t *testing.T) {
+	for _, target := range []Folder{
+		{ID: "root", Title: "Knowledge"},
+		{ID: "ancestor", Title: "Project"},
+		{ID: "foreign", Title: "Other", ParentID: "root"},
+		{ID: "moved", Title: "Project", ParentID: "elsewhere"},
+	} {
+		t.Run(target.ID, func(t *testing.T) {
+			f := newFake()
+			if target.ID != "root" {
+				f.folders = append(f.folders, target)
+			}
+			p := filepath.Join(t.TempDir(), "state.json")
+			s := state{Projects: map[string]projectState{"p": {ID: target.ID, Title: "Project"}}}
+			if err := saveState(p, s); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = Synchronize(context.Background(), f, []Chat{{ID: "plain"}, {ID: "c", ProjectID: "p", ProjectName: "Renamed"}}, "Knowledge", p)
+			if err == nil || f.folderPuts != 0 || len(f.notes) != 0 {
+				t.Fatal("unsafe mapping allowed", err)
+			}
+			after, err := os.ReadFile(p)
+			if err != nil || string(before) != string(after) {
+				t.Fatal("state changed", err)
+			}
+		})
+	}
+}
+func TestSyncNeverRenamesCachedFolder(t *testing.T) {
+	f := newFake()
+	f.folders = append(f.folders, Folder{ID: "foreign", Title: "Project", ParentID: "root"})
+	p := filepath.Join(t.TempDir(), "state.json")
+	if err := saveState(p, state{Projects: map[string]projectState{"p": {ID: "foreign", Title: "Project"}}}); err != nil {
+		t.Fatal(err)
+	}
+	r := syncTest(t, f, []Chat{{ID: "c", ProjectID: "p", ProjectName: "Renamed"}}, p)
+	if r.FoldersCreated != 1 || f.folderPuts != 0 || f.folders[1].Title != "Project" || f.notes[0].ParentID == "foreign" {
+		t.Fatal(r, f.folders)
 	}
 }
