@@ -2,11 +2,7 @@ package importer
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -14,62 +10,8 @@ import (
 
 var marker = regexp.MustCompile(`^<!-- chatgpt-conversation-id: ([^\s<>]+) -->$`)
 
-type projectState struct {
-	ID    string `json:"joplin_id"`
-	Title string `json:"title"`
-}
-type noteState struct {
-	ID        string `json:"joplin_id"`
-	UpdatedMS int64  `json:"updated_ms"`
-}
-type state struct {
-	Notes    map[string]noteState    `json:"notes"`
-	Projects map[string]projectState `json:"projects"`
-}
 type Result struct{ Created, Updated, Unchanged, FoldersCreated int }
 
-func loadState(path string) (state, error) {
-	s := state{}
-	b, e := os.ReadFile(path)
-	if e != nil && !errors.Is(e, os.ErrNotExist) {
-		return s, e
-	}
-	if e == nil {
-		if e = json.Unmarshal(b, &s); e != nil {
-			return s, fmt.Errorf("invalid state file: %w", e)
-		}
-	}
-	if s.Notes == nil {
-		s.Notes = map[string]noteState{}
-	}
-	if s.Projects == nil {
-		s.Projects = map[string]projectState{}
-	}
-	return s, nil
-}
-func saveState(path string, s state) error {
-	if e := os.MkdirAll(filepath.Dir(path), 0700); e != nil {
-		return e
-	}
-	f, e := os.CreateTemp(filepath.Dir(path), ".state-*.tmp")
-	if e != nil {
-		return e
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	if e = enc.Encode(s); e != nil {
-		return e
-	}
-	if e = f.Sync(); e != nil {
-		return e
-	}
-	if e = f.Close(); e != nil {
-		return e
-	}
-	return os.Rename(f.Name(), path)
-}
 func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePath string) (Result, error) {
 	r := Result{}
 	if e := ctx.Err(); e != nil {
@@ -168,12 +110,13 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 					return r, fmt.Errorf("Joplin returned folder without ID")
 				}
 				r.FoldersCreated++
+				p = projectState{f.ID, chat.ProjectName}
+				if e = checkpointProject(statePath, chat.ProjectID, p); e != nil {
+					return r, fmt.Errorf("checkpoint project %q folder %s: %w; preserve this folder ID and repair the state mapping before retrying", chat.ProjectID, f.ID, e)
+				}
+				s.Projects[chat.ProjectID] = p
 			}
 			byID[f.ID] = f
-			s.Projects[chat.ProjectID] = projectState{f.ID, chat.ProjectName}
-			if e = saveState(statePath, s); e != nil {
-				return r, e
-			}
 			parent = f.ID
 		}
 		body := chat.Body
@@ -210,10 +153,10 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 			r.Created++
 		}
 		index[chat.ID] = n
-		s.Notes[chat.ID] = noteState{n.ID, chat.UpdatedMS}
-		if e = saveState(statePath, s); e != nil {
-			return r, e
-		}
 	}
-	return r, nil
+	// Keep checkpoints if compaction fails; replay is idempotent after a crash.
+	if e = saveState(statePath, s); e != nil {
+		return r, e
+	}
+	return r, clearProjectCheckpoints(statePath)
 }

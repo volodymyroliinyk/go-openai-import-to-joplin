@@ -10,7 +10,8 @@ Go 1.27.1+ CLI: manually downloaded ChatGPT export → local Joplin Web Clipper 
 - `internal/importer/cli.go`: arguments, environment defaults, dry-run, exit codes.
 - `internal/importer/export.go`: ZIP/directory/JSON, branches, project metadata, Markdown.
 - `internal/importer/joplin.go`: HTTP client, pagination, global basic marker search, note/folder operations.
-- `internal/importer/sync.go`: authoritative marker index, change detection, atomic state.
+- `internal/importer/sync.go`: authoritative marker index, change detection, synchronization.
+- `internal/importer/state.go`: project-only state, atomic per-project checkpoints, replay and final compaction.
 - `internal/importer/lock.go`: exclusive state-path lock spanning state reads, Joplin access, and saves; abandoned locks require manual recovery.
 - `internal/importer/*_test.go`: parser, fake-client sync, local HTTP and CLI tests.
 - `go.mod`: minimum stable Go toolchain; no third-party dependencies.
@@ -24,7 +25,7 @@ Start with `git status --short` and targeted `rg`/file reads. Preserve staged an
 ## Invariants
 
 - `<!-- chatgpt-conversation-id: ID -->` identifies imported notes; Joplin is authoritative for note identity. Duplicate markers across notes stop import. Discover candidates with global basic search; do not filter by source or destination, or trust state IDs in place of markers.
-- State caches project notebook IDs. Retain it to reuse folders. Missing state must not duplicate notes, but can recreate project notebooks.
+- State caches project notebook IDs. Checkpoint newly created folders before note writes; compact once on success and only then clear checkpoints. Retain state and pending `STATE_PATH.projects/` checkpoints to reuse folders. Missing state must not duplicate notes, but can recreate project notebooks.
 - Re-import updates differing notes, overwriting local edits; identical notes must not issue PUT requests. Notes absent from the export are not deleted.
 - Source is a required positional path. Dry-run needs no credentials and must avoid network and state writes.
 - Preserve ZIP, directory, JSON, and optional project metadata support. Do not assume every export includes projects. Binary attachments are not imported.
