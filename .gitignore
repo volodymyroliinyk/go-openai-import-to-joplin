@@ -1,0 +1,15 @@
+.venv/
+.venv-build/
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.coverage
+config.env
+*.zip
+conversations*.json
+/.idea
+/chatgpt-import-to-joplin
+*.test
+coverage.out

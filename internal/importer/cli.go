@@ -1,0 +1,127 @@
+package importer
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+const usage = `Usage: chatgpt-import-to-joplin SOURCE [options]
+
+Import a ChatGPT ZIP, directory, or conversations.json into Joplin.
+  --joplin-token TOKEN  Web Clipper token (JOPLIN_TOKEN)
+  --notebook NAME_OR_ID Destination notebook (JOPLIN_NOTEBOOK)
+  --joplin-url URL      API URL (JOPLIN_URL; default http://127.0.0.1:41184)
+  --state PATH          State file (default under XDG_STATE_HOME or ~/.local/state)
+  --dry-run             Parse without network access or state writes
+  -h, --help            Show help
+`
+
+// Run accepts options before or after the required source, matching the original CLI.
+func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string) int {
+	token, notebook, base := getenv("JOPLIN_TOKEN"), getenv("JOPLIN_NOTEBOOK"), getenv("JOPLIN_URL")
+	if base == "" {
+		base = "http://127.0.0.1:41184"
+	}
+	home := getenv("HOME")
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	stateRoot := getenv("XDG_STATE_HOME")
+	if stateRoot == "" {
+		stateRoot = filepath.Join(home, ".local", "state")
+	}
+	statePath := filepath.Join(stateRoot, "chatgpt-import-to-joplin", "state.json")
+	source := ""
+	dry := false
+	positional := false
+	invalid := func(s string) int { fmt.Fprintln(stderr, "error:", s); fmt.Fprint(stderr, usage); return 2 }
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if !positional && arg == "--" {
+			positional = true
+			continue
+		}
+		if !positional && (arg == "--help" || arg == "-h") {
+			fmt.Fprint(stdout, usage)
+			return 0
+		}
+		if !positional && arg == "--dry-run" {
+			dry = true
+			continue
+		}
+		if !positional && strings.HasPrefix(arg, "-") {
+			name, value, hasValue := strings.Cut(arg, "=")
+			var target *string
+			switch name {
+			case "--joplin-token":
+				target = &token
+			case "--notebook":
+				target = &notebook
+			case "--joplin-url":
+				target = &base
+			case "--state":
+				target = &statePath
+			default:
+				return invalid("unknown option")
+			}
+			if !hasValue {
+				if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+					return invalid(name + " requires a value")
+				}
+				i++
+				value = args[i]
+			}
+			*target = value
+			continue
+		}
+		if source != "" {
+			return invalid("exactly one source path is required")
+		}
+		source = arg
+	}
+	if source == "" {
+		return invalid("source path is required")
+	}
+	if !dry && (token == "" || notebook == "") {
+		return invalid("--joplin-token and --notebook are required (or set their environment variables)")
+	}
+	if statePath == "" {
+		return invalid("--state must not be empty")
+	}
+	fail := func(e error) int {
+		message := e.Error()
+		if token != "" {
+			message = strings.ReplaceAll(message, token, "[REDACTED]")
+		}
+		fmt.Fprintln(stderr, "error:", message)
+		return 1
+	}
+	chats, e := Load(source)
+	if e != nil {
+		return fail(e)
+	}
+	if dry {
+		projects := map[string]bool{}
+		for _, c := range chats {
+			if c.ProjectID != "" {
+				projects[c.ProjectID] = true
+			}
+		}
+		fmt.Fprintf(stdout, "Parsed %d conversations in %d projects\n", len(chats), len(projects))
+		return 0
+	}
+	c, e := NewClient(token, base)
+	if e != nil {
+		return fail(e)
+	}
+	r, e := Synchronize(ctx, c, chats, notebook, statePath)
+	if e != nil {
+		return fail(e)
+	}
+	fmt.Fprintf(stdout, "Done: %d created, %d updated, %d unchanged, %d project notebooks created\n", r.Created, r.Updated, r.Unchanged, r.FoldersCreated)
+	return 0
+}
