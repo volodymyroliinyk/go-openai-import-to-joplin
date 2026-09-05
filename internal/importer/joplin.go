@@ -30,7 +30,7 @@ type Note struct {
 }
 type Client interface {
 	Folders(context.Context) ([]Folder, error)
-	Notes(context.Context) ([]Note, error)
+	MarkerNotes(context.Context) ([]Note, error)
 	CreateFolder(context.Context, Folder) (Folder, error)
 	UpdateFolder(context.Context, Folder) error
 	CreateNote(context.Context, Note) (Note, error)
@@ -90,30 +90,43 @@ func (c *HTTPClient) request(ctx context.Context, method, endpoint string, q url
 	}
 	return nil
 }
-func pages[T any](ctx context.Context, c *HTTPClient, endpoint, fields string) ([]T, error) {
+func pages[T any](ctx context.Context, c *HTTPClient, endpoint, fields string, query url.Values) ([]T, error) {
 	result := []T{}
+	if query == nil {
+		query = url.Values{}
+	}
+	query.Set("limit", "100")
+	query.Set("fields", fields)
 	for page := 1; ; page++ {
 		var p struct {
-			Items   []T  `json:"items"`
+			Items   *[]T `json:"items"`
 			HasMore bool `json:"has_more"`
 		}
-		if e := c.request(ctx, "GET", endpoint, url.Values{"page": {strconv.Itoa(page)}, "limit": {"100"}, "fields": {fields}}, nil, &p); e != nil {
+		query.Set("page", strconv.Itoa(page))
+		if e := c.request(ctx, "GET", endpoint, query, nil, &p); e != nil {
 			return nil, e
 		}
-		result = append(result, p.Items...)
+		if p.Items == nil {
+			return nil, fmt.Errorf("Joplin returned a page without items")
+		}
+		result = append(result, (*p.Items)...)
 		if !p.HasMore {
 			return result, nil
 		}
-		if len(p.Items) == 0 {
+		if len(*p.Items) == 0 {
 			return nil, fmt.Errorf("Joplin returned empty page with has_more")
 		}
 	}
 }
 func (c *HTTPClient) Folders(ctx context.Context) ([]Folder, error) {
-	return pages[Folder](ctx, c, "/folders", "id,title,parent_id")
+	return pages[Folder](ctx, c, "/folders", "id,title,parent_id", nil)
 }
-func (c *HTTPClient) Notes(ctx context.Context) ([]Note, error) {
-	return pages[Note](ctx, c, "/notes", "id,title,body,parent_id,source,source_url,user_created_time,user_updated_time")
+func (c *HTTPClient) MarkerNotes(ctx context.Context) ([]Note, error) {
+	// Basic search preserves marker punctuation and searches raw note text.
+	// Do not restrict by source or notebook: legacy and moved notes must count,
+	// and all duplicate identities must be detected before any writes.
+	return pages[Note](ctx, c, "/search", "id,title,body,parent_id,source,source_url,user_created_time,user_updated_time",
+		url.Values{"query": {`/"chatgpt-conversation-id:"`}, "type": {"note"}})
 }
 func (c *HTTPClient) CreateFolder(ctx context.Context, f Folder) (Folder, error) {
 	var out Folder

@@ -16,9 +16,9 @@ type fakeClient struct {
 	failNote         bool
 }
 
-func newFake() *fakeClient                                      { return &fakeClient{folders: []Folder{{ID: "root", Title: "Knowledge"}}} }
-func (f *fakeClient) Folders(context.Context) ([]Folder, error) { return f.folders, nil }
-func (f *fakeClient) Notes(context.Context) ([]Note, error)     { return f.notes, nil }
+func newFake() *fakeClient                                        { return &fakeClient{folders: []Folder{{ID: "root", Title: "Knowledge"}}} }
+func (f *fakeClient) Folders(context.Context) ([]Folder, error)   { return f.folders, nil }
+func (f *fakeClient) MarkerNotes(context.Context) ([]Note, error) { return f.notes, nil }
 func (f *fakeClient) CreateFolder(_ context.Context, v Folder) (Folder, error) {
 	v.ID = fmt.Sprintf("f%d", len(f.folders))
 	f.folders = append(f.folders, v)

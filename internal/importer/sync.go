@@ -106,7 +106,7 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 		}
 		root = matches[0]
 	}
-	notes, e := c.Notes(ctx)
+	notes, e := c.MarkerNotes(ctx)
 	if e != nil {
 		return r, e
 	}
