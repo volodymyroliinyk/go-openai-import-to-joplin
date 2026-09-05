@@ -60,7 +60,7 @@ Prefer the environment variable for the token to keep it out of command-line arg
 
 ## Import behavior and limitations
 
-The HTML marker `chatgpt-conversation-id` in note bodies identifies existing imported notes. Duplicate conversation IDs across notes stop the import and report the conflicting note IDs.
+Only the exact first line `<!-- chatgpt-conversation-id: ID -->` identifies an imported note. Marker-like conversation text on later lines does not affect identity. Malformed first-line markers stop import. Duplicate conversation IDs across notes stop the import and report the conflicting note IDs.
 
 The state file caches project notebook mappings. Retain it between imports to reuse project notebooks. Losing state does not duplicate chat notes, but can create new project notebooks. Deleted notes are recreated on the next import. Existing notes are updated only when their title, body, destination, source metadata, or supplied timestamps differ; identical notes are counted as unchanged. Local edits are overwritten from the export. Notes absent from a newer export are not deleted.
 

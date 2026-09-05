@@ -9,9 +9,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 )
 
-var marker = regexp.MustCompile(`<!--\s*chatgpt-conversation-id:\s*([^\s>]+)\s*-->`)
+var marker = regexp.MustCompile(`^<!-- chatgpt-conversation-id: ([^\s<>]+) -->$`)
 
 type projectState struct {
 	ID    string `json:"joplin_id"`
@@ -103,12 +104,22 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 	}
 	index := map[string]Note{}
 	for _, n := range notes {
-		for _, m := range marker.FindAllStringSubmatch(n.Body, -1) {
+		line, _, _ := strings.Cut(n.Body, "\n")
+		m := marker.FindStringSubmatch(line)
+		if m == nil && strings.Contains(line, "chatgpt-conversation-id:") {
+			return r, fmt.Errorf("invalid ChatGPT marker in note %s", n.ID)
+		}
+		if m != nil {
 			id := m[1]
 			if old, ok := index[id]; ok && old.ID != n.ID {
 				return r, fmt.Errorf("duplicate ChatGPT ID markers: %s in notes %s, %s", id, old.ID, n.ID)
 			}
 			index[id] = n
+		}
+	}
+	for _, chat := range chats {
+		if !marker.MatchString("<!-- chatgpt-conversation-id: " + chat.ID + " -->") {
+			return r, fmt.Errorf("invalid conversation ID: %q", chat.ID)
 		}
 	}
 	ordered := append([]Chat(nil), chats...)
@@ -155,7 +166,7 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 			parent = f.ID
 		}
 		body := chat.Body
-		if !marker.MatchString(body) {
+		if line, _, _ := strings.Cut(body, "\n"); line != "<!-- chatgpt-conversation-id: "+chat.ID+" -->" {
 			body = "<!-- chatgpt-conversation-id: " + chat.ID + " -->\n\n" + body
 		}
 		n := Note{Title: chat.Title, Body: body, ParentID: parent, Source: "chatgpt-import-to-joplin", SourceURL: "https://chatgpt.com/c/" + chat.ID, CreatedMS: chat.CreatedMS, UpdatedMS: chat.UpdatedMS}

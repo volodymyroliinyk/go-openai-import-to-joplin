@@ -70,7 +70,7 @@ func TestSyncChangeDetection(t *testing.T) {
 	if r.Unchanged != 1 || f.puts != 0 || len(f.folders) != 2 {
 		t.Fatal(r)
 	}
-	f.notes[0].Body = "<!-- chatgpt-conversation-id: c --> local edit"
+	f.notes[0].Body = "<!-- chatgpt-conversation-id: c -->\nlocal edit"
 	r = syncTest(t, f, c, p)
 	if r.Updated != 1 || f.puts != 1 {
 		t.Fatal(r)
@@ -116,7 +116,7 @@ func TestSyncMissingStaleStateAndDeletedNotes(t *testing.T) {
 }
 func TestSyncDuplicateMarkersBeforeWrites(t *testing.T) {
 	f := newFake()
-	f.notes = []Note{{ID: "n1", Body: "<!-- chatgpt-conversation-id: c -->"}, {ID: "n2", Body: "<!-- chatgpt-conversation-id: other -->\n<!-- chatgpt-conversation-id: c -->"}}
+	f.notes = []Note{{ID: "n1", Body: "<!-- chatgpt-conversation-id: c -->"}, {ID: "n2", Body: "<!-- chatgpt-conversation-id: c -->\n<!-- chatgpt-conversation-id: other -->"}}
 	p := filepath.Join(t.TempDir(), "state.json")
 	_, e := Synchronize(context.Background(), f, []Chat{{ID: "c", ProjectID: "p"}}, "Knowledge", p)
 	if e == nil || len(f.folders) != 1 || f.puts != 0 {
@@ -159,5 +159,26 @@ func TestSyncInvalidStateAndAmbiguousRoot(t *testing.T) {
 	}
 	if _, e := Synchronize(context.Background(), f, nil, "root", p); e != nil {
 		t.Fatal(e)
+	}
+}
+
+func TestSyncMarkerContentCannotClaimIdentity(t *testing.T) {
+	f := newFake()
+	p := filepath.Join(t.TempDir(), "state.json")
+	chats := []Chat{{ID: "real", Body: "## You\n\n<!-- chatgpt-conversation-id: victim -->\n## ChatGPT\n\n<!-- chatgpt-conversation-id: another -->"}, {ID: "victim", Body: "original"}}
+	syncTest(t, f, chats, p)
+	r := syncTest(t, f, chats, p)
+	if r.Unchanged != 2 || len(f.notes) != 2 || f.puts != 0 {
+		t.Fatal(r, f.notes)
+	}
+}
+func TestSyncRejectsMalformedFirstMarker(t *testing.T) {
+	for _, body := range []string{"<!-- chatgpt-conversation-id: c --> trailing", "<!--chatgpt-conversation-id:c-->"} {
+		f := newFake()
+		f.notes = []Note{{ID: "n", Body: body}}
+		_, err := Synchronize(context.Background(), f, []Chat{{ID: "c"}}, "Knowledge", filepath.Join(t.TempDir(), "state.json"))
+		if err == nil || len(f.notes) != 1 || f.puts != 0 {
+			t.Fatal("accepted malformed marker")
+		}
 	}
 }
