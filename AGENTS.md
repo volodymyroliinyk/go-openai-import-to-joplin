@@ -11,6 +11,7 @@ Go 1.27.1+ CLI: manually downloaded ChatGPT export → local Joplin Web Clipper 
 - `internal/importer/export.go`: ZIP/directory/JSON, branches, project metadata, Markdown.
 - `internal/importer/joplin.go`: HTTP client, pagination, note/folder operations.
 - `internal/importer/sync.go`: authoritative marker index, change detection, atomic state.
+- `internal/importer/lock.go`: exclusive state-path lock spanning state reads, Joplin access, and saves; abandoned locks require manual recovery.
 - `internal/importer/*_test.go`: parser, fake-client sync, local HTTP and CLI tests.
 - `go.mod`: minimum stable Go toolchain; no third-party dependencies.
 - `scripts/{build,install,update}.sh`: packaging and per-user CLI installation.

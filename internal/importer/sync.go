@@ -72,6 +72,14 @@ func saveState(path string, s state) error {
 }
 func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePath string) (Result, error) {
 	r := Result{}
+	if e := ctx.Err(); e != nil {
+		return r, e
+	}
+	statePath, unlock, e := lockState(statePath)
+	if e != nil {
+		return r, e
+	}
+	defer unlock()
 	s, e := loadState(statePath)
 	if e != nil {
 		return r, e
