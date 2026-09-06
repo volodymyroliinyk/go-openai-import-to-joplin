@@ -3,6 +3,9 @@ package importer
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,6 +87,36 @@ func TestCLIRejectsConflictingConversationIDsBeforeStateOrJoplin(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Dir(state)); !os.IsNotExist(statErr) {
 		t.Fatal("conflicting export touched state", statErr)
+	}
+}
+
+func TestCLIReportsPartialResult(t *testing.T) {
+	posts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/folders":
+			fmt.Fprint(w, `{"items":[{"id":"root","title":"Knowledge"}],"has_more":false}`)
+		case r.Method == "GET" && r.URL.Path == "/search":
+			fmt.Fprint(w, `{"items":[],"has_more":false}`)
+		case r.Method == "POST" && r.URL.Path == "/notes":
+			posts++
+			if posts == 1 {
+				fmt.Fprint(w, `{"id":"created"}`)
+			} else {
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	p := filepath.Join(t.TempDir(), "conversations.json")
+	write(t, p, `[{"id":"one"},{"id":"two"}]`)
+	var out, err bytes.Buffer
+	code := Run(context.Background(), []string{p, "--joplin-token=secret", "--notebook=Knowledge", "--joplin-url=" + server.URL, "--state=" + filepath.Join(t.TempDir(), "state.json")}, &out, &err, func(string) string { return "" })
+	if code != 1 || posts != 2 || !strings.Contains(err.String(), "Failed after: 1 created, 0 updated, 0 unchanged, 0 project notebooks created") || !strings.Contains(err.String(), "rerun the same import") || strings.Contains(err.String(), "secret") {
+		t.Fatalf("code=%d posts=%d stdout=%q stderr=%q", code, posts, out.String(), err.String())
 	}
 }
 

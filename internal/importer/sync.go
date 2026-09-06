@@ -12,8 +12,22 @@ var marker = regexp.MustCompile(`^<!-- chatgpt-conversation-id: ([^\s<>]+) -->$`
 
 type Result struct{ Created, Updated, Unchanged, FoldersCreated int }
 
-func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePath string) (Result, error) {
-	r := Result{}
+type PartialError struct {
+	Result Result
+	Err    error
+}
+
+func (e *PartialError) Error() string { return e.Err.Error() }
+func (e *PartialError) Unwrap() error { return e.Err }
+
+func (r Result) mutations() int { return r.Created + r.Updated + r.FoldersCreated }
+
+func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePath string) (r Result, err error) {
+	defer func() {
+		if err != nil && r.mutations() != 0 {
+			err = &PartialError{Result: r, Err: err}
+		}
+	}()
 	if e := ctx.Err(); e != nil {
 		return r, e
 	}
@@ -106,10 +120,10 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 				if e != nil {
 					return r, e
 				}
+				r.FoldersCreated++
 				if f.ID == "" {
 					return r, fmt.Errorf("Joplin returned folder without ID")
 				}
-				r.FoldersCreated++
 				p = projectState{f.ID, chat.ProjectName}
 				if e = checkpointProject(statePath, chat.ProjectID, p); e != nil {
 					return r, fmt.Errorf("checkpoint project %q folder %s: %w; preserve this folder ID and repair the state mapping before retrying", chat.ProjectID, f.ID, e)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,7 @@ type fakeClient struct {
 	notes            []Note
 	puts, folderPuts int
 	failNote         bool
+	failAfterNotes   int
 }
 
 func newFake() *fakeClient                                        { return &fakeClient{folders: []Folder{{ID: "root", Title: "Knowledge"}}} }
@@ -34,12 +36,22 @@ func (f *fakeClient) UpdateFolder(_ context.Context, v Folder) error {
 	return nil
 }
 func (f *fakeClient) CreateNote(_ context.Context, v Note) (Note, error) {
-	if f.failNote {
+	if f.failNote || f.failAfterNotes > 0 && len(f.notes) >= f.failAfterNotes {
 		return Note{}, errors.New("note failed")
 	}
 	v.ID = fmt.Sprintf("n%d", len(f.notes))
 	f.notes = append(f.notes, v)
 	return v, nil
+}
+
+func TestSyncReportsPartialResult(t *testing.T) {
+	f := newFake()
+	f.failAfterNotes = 1
+	r, err := Synchronize(context.Background(), f, []Chat{{ID: "one"}, {ID: "two"}}, "Knowledge", filepath.Join(t.TempDir(), "state.json"))
+	var partial *PartialError
+	if !errors.As(err, &partial) || r.Created != 1 || partial.Result != r || len(f.notes) != 1 || !strings.Contains(err.Error(), "note failed") {
+		t.Fatalf("result=%+v partial=%+v notes=%d err=%v", r, partial, len(f.notes), err)
+	}
 }
 func (f *fakeClient) UpdateNote(_ context.Context, v Note) error {
 	f.puts++

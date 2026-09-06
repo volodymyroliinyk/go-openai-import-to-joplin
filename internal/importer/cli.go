@@ -2,6 +2,7 @@ package importer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -139,6 +140,11 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	}
 	r, e := Synchronize(ctx, c, chats, notebook, statePath)
 	if e != nil {
+		var partial *PartialError
+		if errors.As(e, &partial) {
+			p := partial.Result
+			fmt.Fprintf(stderr, "Failed after: %d created, %d updated, %d unchanged, %d project notebooks created. Existing changes were not rolled back; fix the reported error and rerun the same import to resume safely.\n", p.Created, p.Updated, p.Unchanged, p.FoldersCreated)
+		}
 		return fail(e)
 	}
 	fmt.Fprintf(stdout, "Done: %d created, %d updated, %d unchanged, %d project notebooks created\n", r.Created, r.Updated, r.Unchanged, r.FoldersCreated)
