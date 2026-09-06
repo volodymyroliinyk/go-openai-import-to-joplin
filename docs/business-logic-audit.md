@@ -218,7 +218,9 @@ JSON decoder ігнорує невідомі поля, version відсутня.
 
 **Рекомендація:** контекстні помилки `file/conversation/node`; counters skipped/unsupported; policy “fail, warn або preserve JSON” для невідомих content parts. Не логувати сам приватний content.
 
-### BL-15 — Немає end-to-end тестів критичних recovery/security сценаріїв (P3)
+### BL-15 — Немає end-to-end тестів критичних recovery/security сценаріїв (P3) — ✅ Виконано
+
+**Статус:** виконано 2026-09-05. Regression/integration matrix покриває marker injection і secondary IDs у content, duplicate markers, state mappings на root/foreign/moved folders, міжпроцесний lock і path aliases, process exit після folder checkpoint, replay після compaction failure, втрату відповіді після CreateNote/UpdateNote з ідемпотентним retry, resource limits до Joplin/state writes, remote plain HTTP policy та CLI partial-result reporting. Тести використовують fake clients, subprocesses і локальний `httptest`, без live Joplin або приватних export.
 
 **Де:** `internal/importer/*_test.go`.
 

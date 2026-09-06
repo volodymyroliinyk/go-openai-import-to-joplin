@@ -55,6 +55,62 @@ func TestSyncReportsPartialResult(t *testing.T) {
 	}
 }
 
+type ambiguousWriteClient struct {
+	*fakeClient
+	failCreate, failUpdate bool
+}
+
+func (c *ambiguousWriteClient) CreateNote(ctx context.Context, note Note) (Note, error) {
+	created, err := c.fakeClient.CreateNote(ctx, note)
+	if err == nil && c.failCreate {
+		c.failCreate = false
+		return Note{}, errors.New("connection lost after create")
+	}
+	return created, err
+}
+
+func (c *ambiguousWriteClient) UpdateNote(ctx context.Context, note Note) error {
+	err := c.fakeClient.UpdateNote(ctx, note)
+	if err == nil && c.failUpdate {
+		c.failUpdate = false
+		return errors.New("connection lost after update")
+	}
+	return err
+}
+
+func TestSyncRetryAfterAmbiguousNoteWrites(t *testing.T) {
+	t.Run("create response lost", func(t *testing.T) {
+		f := newFake()
+		client := &ambiguousWriteClient{fakeClient: f, failCreate: true}
+		path := filepath.Join(t.TempDir(), "state.json")
+		chat := []Chat{{ID: "c", Title: "Created", Body: "content"}}
+
+		if result, err := Synchronize(context.Background(), client, chat, "Knowledge", path); err == nil || result != (Result{}) || len(f.notes) != 1 {
+			t.Fatalf("result=%+v notes=%v err=%v", result, f.notes, err)
+		}
+		result := syncTest(t, f, chat, path)
+		if result.Unchanged != 1 || result.Created != 0 || len(f.notes) != 1 {
+			t.Fatalf("retry duplicated note: result=%+v notes=%v", result, f.notes)
+		}
+	})
+
+	t.Run("update response lost", func(t *testing.T) {
+		f := newFake()
+		f.notes = []Note{{ID: "n", Title: "Old", Body: "<!-- chatgpt-conversation-id: c -->\n\nold", ParentID: "root", Source: "chatgpt-import-to-joplin", SourceURL: "https://chatgpt.com/c/c"}}
+		client := &ambiguousWriteClient{fakeClient: f, failUpdate: true}
+		path := filepath.Join(t.TempDir(), "state.json")
+		chat := []Chat{{ID: "c", Title: "Updated", Body: "new"}}
+
+		if result, err := Synchronize(context.Background(), client, chat, "Knowledge", path); err == nil || result != (Result{}) || f.notes[0].Title != "Updated" {
+			t.Fatalf("result=%+v note=%+v err=%v", result, f.notes[0], err)
+		}
+		result := syncTest(t, f, chat, path)
+		if result.Unchanged != 1 || result.Updated != 0 || f.puts != 1 {
+			t.Fatalf("retry rewrote note: result=%+v puts=%d", result, f.puts)
+		}
+	})
+}
+
 func TestSyncRejectsConflictingProjectNamesBeforeWrites(t *testing.T) {
 	f := newFake()
 	p := filepath.Join(t.TempDir(), "state.json")
