@@ -121,7 +121,7 @@ func TestSyncRetainsCheckpointsWhenCompactionFails(t *testing.T) {
 func TestStateCheckpointReplayAfterCompaction(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	p := projectState{ID: "f", Title: "Project"}
-	if err := checkpointProject(path, "p", p); err != nil {
+	if err := checkpointProject(path, "p", p, destinationState{Endpoint: "fake://profile", RootID: "root"}); err != nil {
 		t.Fatal(err)
 	}
 	s, err := loadState(path)

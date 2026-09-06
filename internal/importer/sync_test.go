@@ -19,6 +19,7 @@ type fakeClient struct {
 }
 
 func newFake() *fakeClient                                        { return &fakeClient{folders: []Folder{{ID: "root", Title: "Knowledge"}}} }
+func (f *fakeClient) DestinationID() string                       { return "fake://profile" }
 func (f *fakeClient) Folders(context.Context) ([]Folder, error)   { return f.folders, nil }
 func (f *fakeClient) MarkerNotes(context.Context) ([]Note, error) { return f.notes, nil }
 func (f *fakeClient) CreateFolder(_ context.Context, v Folder) (Folder, error) {
@@ -80,6 +81,31 @@ func TestSyncStoresCanonicalFallbackProjectName(t *testing.T) {
 	s, err := loadState(p)
 	if err != nil || s.Projects["project"].Title != "ChatGPT project project" {
 		t.Fatal(s, err)
+	}
+}
+
+func TestSyncRejectsStateDestinationMismatch(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		destination *destinationState
+	}{
+		{"endpoint", &destinationState{Endpoint: "fake://other-profile", RootID: "root"}},
+		{"root", &destinationState{Endpoint: "fake://profile", RootID: "other-root"}},
+		{"unbound mappings", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFake()
+			p := filepath.Join(t.TempDir(), "state.json")
+			if err := saveState(p, state{Destination: tc.destination, Projects: map[string]projectState{"p": {ID: "missing", Title: "Project"}}}); err != nil {
+				t.Fatal(err)
+			}
+			before, _ := os.ReadFile(p)
+			r, err := Synchronize(context.Background(), f, []Chat{{ID: "c", ProjectID: "p", ProjectName: "Project"}}, "Knowledge", p)
+			after, _ := os.ReadFile(p)
+			if err == nil || r != (Result{}) || len(f.folders) != 1 || len(f.notes) != 0 || string(before) != string(after) || (!strings.Contains(err.Error(), "destination") && !strings.Contains(err.Error(), "no destination binding")) {
+				t.Fatalf("result=%+v folders=%v notes=%v err=%v", r, f.folders, f.notes, err)
+			}
+		})
 	}
 }
 func (f *fakeClient) UpdateNote(_ context.Context, v Note) error {
@@ -237,7 +263,8 @@ func TestSyncRejectsUnsafeProjectMappingsBeforeWrites(t *testing.T) {
 				f.folders = append(f.folders, target)
 			}
 			p := filepath.Join(t.TempDir(), "state.json")
-			s := state{Projects: map[string]projectState{"p": {ID: target.ID, Title: "Project"}}}
+			destination := destinationState{Endpoint: f.DestinationID(), RootID: "root"}
+			s := state{Destination: &destination, Projects: map[string]projectState{"p": {ID: target.ID, Title: "Project"}}}
 			if err := saveState(p, s); err != nil {
 				t.Fatal(err)
 			}
@@ -260,7 +287,8 @@ func TestSyncNeverRenamesCachedFolder(t *testing.T) {
 	f := newFake()
 	f.folders = append(f.folders, Folder{ID: "foreign", Title: "Project", ParentID: "root"})
 	p := filepath.Join(t.TempDir(), "state.json")
-	if err := saveState(p, state{Projects: map[string]projectState{"p": {ID: "foreign", Title: "Project"}}}); err != nil {
+	destination := destinationState{Endpoint: f.DestinationID(), RootID: "root"}
+	if err := saveState(p, state{Destination: &destination, Projects: map[string]projectState{"p": {ID: "foreign", Title: "Project"}}}); err != nil {
 		t.Fatal(err)
 	}
 	r := syncTest(t, f, []Chat{{ID: "c", ProjectID: "p", ProjectName: "Renamed"}}, p)

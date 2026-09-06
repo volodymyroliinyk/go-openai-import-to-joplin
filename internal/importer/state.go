@@ -11,16 +11,17 @@ import (
 )
 
 type projectCheckpoint struct {
-	Project string       `json:"project_id"`
-	Folder  projectState `json:"folder"`
+	Project     string           `json:"project_id"`
+	Folder      projectState     `json:"folder"`
+	Destination destinationState `json:"destination"`
 }
 
 func checkpointName(project string) string {
 	return fmt.Sprintf("%x.json", sha256.Sum256([]byte(project)))
 }
 
-func checkpointProject(path, project string, folder projectState) error {
-	return saveJSON(filepath.Join(path+".projects", checkpointName(project)), projectCheckpoint{project, folder})
+func checkpointProject(path, project string, folder projectState, destination destinationState) error {
+	return saveJSON(filepath.Join(path+".projects", checkpointName(project)), projectCheckpoint{project, folder, destination})
 }
 
 func projectCheckpointFiles(path string) ([]string, error) {
@@ -58,8 +59,14 @@ func replayProjects(path string, s *state) error {
 		if err = json.Unmarshal(b, &checkpoint); err != nil {
 			return fmt.Errorf("invalid project checkpoint %s: %w", file, err)
 		}
-		if checkpoint.Project == "" || checkpoint.Folder.ID == "" || filepath.Base(file) != checkpointName(checkpoint.Project) {
+		if checkpoint.Project == "" || checkpoint.Folder.ID == "" || !checkpoint.Destination.valid() || filepath.Base(file) != checkpointName(checkpoint.Project) {
 			return fmt.Errorf("invalid project checkpoint: %s", file)
+		}
+		if s.Destination == nil {
+			destination := checkpoint.Destination
+			s.Destination = &destination
+		} else if *s.Destination != checkpoint.Destination {
+			return fmt.Errorf("project checkpoint destination does not match state: %s", file)
 		}
 		s.Projects[checkpoint.Project] = checkpoint.Folder
 	}
@@ -83,8 +90,16 @@ type projectState struct {
 	ID    string `json:"joplin_id"`
 	Title string `json:"title"`
 }
+type destinationState struct {
+	Endpoint string `json:"endpoint"`
+	RootID   string `json:"root_id"`
+}
+
+func (d destinationState) valid() bool { return d.Endpoint != "" && d.RootID != "" }
+
 type state struct {
-	Projects map[string]projectState `json:"projects"`
+	Destination *destinationState       `json:"destination,omitempty"`
+	Projects    map[string]projectState `json:"projects"`
 }
 
 func loadState(path string) (state, error) {

@@ -180,7 +180,9 @@ Chats сортуються за `ProjectName`, потім кожен chat мож
 
 **Критерій готовності:** один ProjectID породжує не більше одного folder mutation за запуск і має детерміновану назву.
 
-### BL-12 — Семантика state не ізольована від Joplin profile/root (P2)
+### BL-12 — Семантика state не ізольована від Joplin profile/root (P2) — ✅ Виконано
+
+**Статус:** виконано 2026-09-05. State і project checkpoints містять binding до нормалізованого Joplin endpoint/profile та resolved root notebook ID. Mismatch відхиляється до marker scan і mutations з інструкцією використати правильний destination/state path. Legacy state з project mappings без binding не застосовується автоматично; порожній state безпечно прив'язується при першому успішному import.
 
 **Де:** `sync.go:16-27, 72-99, 130-151`; CLI має один default state path.
 

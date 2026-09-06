@@ -30,6 +30,7 @@ type Note struct {
 	UpdatedMS int64  `json:"user_updated_time,omitempty"`
 }
 type Client interface {
+	DestinationID() string
 	Folders(context.Context) ([]Folder, error)
 	MarkerNotes(context.Context) ([]Note, error)
 	CreateFolder(context.Context, Folder) (Folder, error)
@@ -41,6 +42,14 @@ type HTTPClient struct {
 	base  *url.URL
 	token string
 	http  *http.Client
+}
+
+func (c *HTTPClient) DestinationID() string {
+	u := *c.base
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	u.Path = strings.TrimRight(u.Path, "/")
+	return u.String()
 }
 
 func NewClient(token, base string) (*HTTPClient, error) {

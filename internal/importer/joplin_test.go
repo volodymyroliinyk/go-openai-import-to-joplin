@@ -95,6 +95,13 @@ func TestHTTPURLValidation(t *testing.T) {
 	}
 }
 
+func TestHTTPDestinationIDIsNormalized(t *testing.T) {
+	c, err := NewClient("secret", "HTTP://LOCALHOST:41184/api/")
+	if err != nil || c.DestinationID() != "http://localhost:41184/api" {
+		t.Fatal(c.DestinationID(), err)
+	}
+}
+
 func TestHTTPTransportPolicy(t *testing.T) {
 	for _, u := range []string{
 		"http://localhost:41184", "http://LOCALHOST.:41184", "http://127.0.0.1:41184",

@@ -62,6 +62,18 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 		}
 		root = matches[0]
 	}
+	destination := destinationState{Endpoint: c.DestinationID(), RootID: root}
+	if !destination.valid() {
+		return r, fmt.Errorf("cannot identify Joplin destination")
+	}
+	if s.Destination == nil {
+		if len(s.Projects) != 0 {
+			return r, fmt.Errorf("state has project mappings but no destination binding; use a different state path or explicitly migrate the state after verifying its Joplin endpoint and root notebook")
+		}
+		s.Destination = &destination
+	} else if *s.Destination != destination {
+		return r, fmt.Errorf("state destination mismatch: this state belongs to endpoint %q and root %q; use the matching destination or a different state path", s.Destination.Endpoint, s.Destination.RootID)
+	}
 	notes, e := c.MarkerNotes(ctx)
 	if e != nil {
 		return r, e
@@ -136,7 +148,7 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 					return r, fmt.Errorf("Joplin returned folder without ID")
 				}
 				p = projectState{f.ID, title}
-				if e = checkpointProject(statePath, chat.ProjectID, p); e != nil {
+				if e = checkpointProject(statePath, chat.ProjectID, p, destination); e != nil {
 					return r, fmt.Errorf("checkpoint project %q folder %s: %w; preserve this folder ID and repair the state mapping before retrying", chat.ProjectID, f.ID, e)
 				}
 				s.Projects[chat.ProjectID] = p
