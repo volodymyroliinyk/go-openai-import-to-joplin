@@ -86,6 +86,17 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 			return r, fmt.Errorf("invalid conversation ID: %q", chat.ID)
 		}
 	}
+	projectNames := map[string]string{}
+	for _, chat := range chats {
+		if chat.ProjectID == "" {
+			continue
+		}
+		title := first(chat.ProjectName, "ChatGPT project "+chat.ProjectID)
+		if previous, ok := projectNames[chat.ProjectID]; ok && previous != title {
+			return r, fmt.Errorf("conflicting names for project %q: %q and %q; whole import rejected", chat.ProjectID, previous, title)
+		}
+		projectNames[chat.ProjectID] = title
+	}
 	// Validate every cached folder before any writes. State is only a cache,
 	// not authority to rename or move an existing Joplin folder.
 	for project, p := range s.Projects {
@@ -113,7 +124,7 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 		parent := root
 		if chat.ProjectID != "" {
 			p := s.Projects[chat.ProjectID]
-			title := first(chat.ProjectName, "ChatGPT project "+chat.ProjectID)
+			title := projectNames[chat.ProjectID]
 			f, ok := byID[p.ID]
 			if !ok || f.Title != title {
 				f, e = c.CreateFolder(ctx, Folder{Title: title, ParentID: root})
@@ -124,7 +135,7 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 				if f.ID == "" {
 					return r, fmt.Errorf("Joplin returned folder without ID")
 				}
-				p = projectState{f.ID, chat.ProjectName}
+				p = projectState{f.ID, title}
 				if e = checkpointProject(statePath, chat.ProjectID, p); e != nil {
 					return r, fmt.Errorf("checkpoint project %q folder %s: %w; preserve this folder ID and repair the state mapping before retrying", chat.ProjectID, f.ID, e)
 				}

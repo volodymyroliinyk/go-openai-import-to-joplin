@@ -53,6 +53,35 @@ func TestSyncReportsPartialResult(t *testing.T) {
 		t.Fatalf("result=%+v partial=%+v notes=%d err=%v", r, partial, len(f.notes), err)
 	}
 }
+
+func TestSyncRejectsConflictingProjectNamesBeforeWrites(t *testing.T) {
+	f := newFake()
+	p := filepath.Join(t.TempDir(), "state.json")
+	chats := []Chat{
+		{ID: "one", ProjectID: "project", ProjectName: "Alpha"},
+		{ID: "two", ProjectID: "project", ProjectName: "Beta"},
+	}
+	r, err := Synchronize(context.Background(), f, chats, "Knowledge", p)
+	if err == nil || !strings.Contains(err.Error(), `conflicting names for project "project"`) || r != (Result{}) || len(f.folders) != 1 || len(f.notes) != 0 {
+		t.Fatalf("result=%+v folders=%v notes=%v err=%v", r, f.folders, f.notes, err)
+	}
+	if _, statErr := os.Stat(p); !os.IsNotExist(statErr) {
+		t.Fatal("preflight conflict wrote state", statErr)
+	}
+}
+
+func TestSyncStoresCanonicalFallbackProjectName(t *testing.T) {
+	f := newFake()
+	p := filepath.Join(t.TempDir(), "state.json")
+	r := syncTest(t, f, []Chat{{ID: "one", ProjectID: "project"}, {ID: "two", ProjectID: "project"}}, p)
+	if r.FoldersCreated != 1 || len(f.folders) != 2 || f.folders[1].Title != "ChatGPT project project" {
+		t.Fatal(r, f.folders)
+	}
+	s, err := loadState(p)
+	if err != nil || s.Projects["project"].Title != "ChatGPT project project" {
+		t.Fatal(s, err)
+	}
+}
 func (f *fakeClient) UpdateNote(_ context.Context, v Note) error {
 	f.puts++
 	for i, x := range f.notes {
