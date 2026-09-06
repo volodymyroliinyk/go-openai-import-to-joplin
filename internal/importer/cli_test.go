@@ -61,3 +61,27 @@ func TestCLILimits(t *testing.T) {
 		}
 	}
 }
+
+func TestCLIInsecureHTTPPolicy(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "conversations.json")
+	write(t, p, fixture)
+	state := filepath.Join(t.TempDir(), "state.json")
+	baseArgs := []string{p, "--joplin-token=secret", "--notebook=Knowledge", "--state=" + state, "--joplin-url=http://192.0.2.1:41184"}
+
+	var out, err bytes.Buffer
+	if code := Run(context.Background(), baseArgs, &out, &err, func(string) string { return "" }); code != 1 || !strings.Contains(err.String(), "--allow-insecure-http") || strings.Contains(err.String(), "secret") {
+		t.Fatalf("unsafe endpoint was not rejected safely: code=%d stderr=%q", code, err.String())
+	}
+	if _, statErr := os.Stat(state + ".lock"); !os.IsNotExist(statErr) {
+		t.Fatal("transport policy created state lock", statErr)
+	}
+
+	out.Reset()
+	err.Reset()
+	args := append(append([]string{}, baseArgs...), "--allow-insecure-http")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if code := Run(ctx, args, &out, &err, func(string) string { return "" }); code != 1 || !strings.Contains(err.String(), "warning: sending the Joplin token over insecure HTTP") || strings.Contains(err.String(), "secret") {
+		t.Fatalf("override warning missing: code=%d stderr=%q", code, err.String())
+	}
+}

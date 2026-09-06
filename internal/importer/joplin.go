@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -43,11 +44,26 @@ type HTTPClient struct {
 }
 
 func NewClient(token, base string) (*HTTPClient, error) {
+	return newClient(token, base, false)
+}
+
+func newClient(token, base string, allowInsecureHTTP bool) (*HTTPClient, error) {
 	u, e := url.Parse(base)
-	if e != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	if e != nil || u.Host == "" || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, fmt.Errorf("invalid Joplin URL: use an HTTP(S) URL without credentials, query, or fragment")
 	}
+	if u.Scheme == "http" && !loopbackHost(u.Hostname()) && !allowInsecureHTTP {
+		return nil, fmt.Errorf("refusing to send the Joplin token over HTTP to a non-loopback host; use HTTPS or explicitly pass --allow-insecure-http")
+	}
 	return &HTTPClient{u, token, &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+}
+
+func loopbackHost(host string) bool {
+	if strings.EqualFold(strings.TrimSuffix(host, "."), "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 func (c *HTTPClient) request(ctx context.Context, method, endpoint string, q url.Values, payload, out any) error {
 	u := *c.base

@@ -88,9 +88,28 @@ func TestHTTPFailuresDoNotLeakToken(t *testing.T) {
 	}
 }
 func TestHTTPURLValidation(t *testing.T) {
-	for _, u := range []string{"bad", "ftp://localhost", "http://user:secret@localhost", "http://localhost?token=secret"} {
+	for _, u := range []string{"bad", "ftp://localhost", "http://user:secret@localhost", "http://localhost?token=secret", "http://:41184"} {
 		if _, e := NewClient("secret", u); e == nil || strings.Contains(e.Error(), "secret") {
 			t.Fatalf("%s: %v", u, e)
+		}
+	}
+}
+
+func TestHTTPTransportPolicy(t *testing.T) {
+	for _, u := range []string{
+		"http://localhost:41184", "http://LOCALHOST.:41184", "http://127.0.0.1:41184",
+		"http://127.42.0.9:41184", "http://[::1]:41184", "https://joplin.example:41184",
+	} {
+		if _, err := NewClient("secret", u); err != nil {
+			t.Errorf("rejected safe URL %q: %v", u, err)
+		}
+	}
+	for _, u := range []string{"http://joplin.example:41184", "http://192.168.1.20:41184", "http://[2001:db8::1]:41184"} {
+		if _, err := NewClient("secret", u); err == nil || strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "--allow-insecure-http") {
+			t.Errorf("did not safely reject %q: %v", u, err)
+		}
+		if _, err := newClient("secret", u, true); err != nil {
+			t.Errorf("explicit override rejected for %q: %v", u, err)
 		}
 	}
 }

@@ -53,11 +53,14 @@ Use [config/example.env](config/example.env) syntax: `export NAME='value'`. When
 | `--joplin-token` | `JOPLIN_TOKEN`; required for import |
 | `--notebook` | `JOPLIN_NOTEBOOK`; destination ID or exact name, required for import |
 | `--joplin-url` | `JOPLIN_URL`, otherwise `http://127.0.0.1:41184` |
+| `--allow-insecure-http` | Explicitly allow HTTP to a non-loopback Joplin host |
 | `--state` | `${XDG_STATE_HOME:-$HOME/.local/state}/chatgpt-import-to-joplin/state.json` |
 | `--limit NAME=VALUE` | Override one resource budget; repeatable |
 | `--dry-run` | Parse and report without importing |
 
 Prefer the environment variable for the token to keep it out of command-line arguments. Summaries go to stdout; errors go to stderr. Exit codes: `0` success, `1` import error, `2` invalid arguments.
+
+HTTPS is required when `JOPLIN_URL` points outside the local machine. Plain HTTP is accepted by default only for `localhost`, `127.0.0.0/8`, and `::1`. If a trusted private deployment cannot provide HTTPS, `--allow-insecure-http` enables the connection for that invocation and prints a warning because the token will cross the network without transport encryption.
 
 ## Import behavior and limitations
 

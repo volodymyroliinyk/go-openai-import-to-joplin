@@ -15,6 +15,7 @@ Import a ChatGPT ZIP, directory, or conversations.json into Joplin.
   --joplin-token TOKEN  Web Clipper token (JOPLIN_TOKEN)
   --notebook NAME_OR_ID Destination notebook (JOPLIN_NOTEBOOK)
   --joplin-url URL      API URL (JOPLIN_URL; default http://127.0.0.1:41184)
+  --allow-insecure-http Allow token-bearing HTTP requests to a non-loopback host
   --state PATH          State file (default under XDG_STATE_HOME or ~/.local/state)
   --limit NAME=VALUE    Override a resource budget; repeatable (byte units: KiB/MiB/GiB)
   --dry-run             Validate the whole export without network or state writes
@@ -38,6 +39,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	statePath := filepath.Join(stateRoot, "chatgpt-import-to-joplin", "state.json")
 	source := ""
 	dry := false
+	allowInsecureHTTP := false
 	limits := DefaultLimits()
 	positional := false
 	invalid := func(s string) int { fmt.Fprintln(stderr, "error:", s); fmt.Fprint(stderr, usage); return 2 }
@@ -53,6 +55,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		}
 		if !positional && arg == "--dry-run" {
 			dry = true
+			continue
+		}
+		if !positional && arg == "--allow-insecure-http" {
+			allowInsecureHTTP = true
 			continue
 		}
 		if !positional && strings.HasPrefix(arg, "-") {
@@ -124,9 +130,12 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		fmt.Fprintf(stdout, "Parsed %d conversations in %d projects\n", len(chats), len(projects))
 		return 0
 	}
-	c, e := NewClient(token, base)
+	c, e := newClient(token, base, allowInsecureHTTP)
 	if e != nil {
 		return fail(e)
+	}
+	if c.base.Scheme == "http" && !loopbackHost(c.base.Hostname()) {
+		fmt.Fprintln(stderr, "warning: sending the Joplin token over insecure HTTP to a non-loopback host")
 	}
 	r, e := Synchronize(ctx, c, chats, notebook, statePath)
 	if e != nil {
