@@ -78,7 +78,7 @@ func TestLoadSpecificFileAndShards(t *testing.T) {
 func TestLoadDuplicateConversations(t *testing.T) {
 	t.Run("equivalent entries are deduplicated", func(t *testing.T) {
 		p := filepath.Join(t.TempDir(), "conversations.json")
-		write(t, p, `{"conversations":[{"id":"same","title":"Chat","mapping":{"node":{"message":null}}},{"mapping":{"node":{"message":null}},"title":"Chat","id":"same"}]}`)
+		write(t, p, `{"conversations":[{"id":"same","title":"Chat","mapping":{}},{"mapping":{},"title":"Chat","id":"same"}]}`)
 		chats, err := Load(p)
 		if err != nil || len(chats) != 1 || chats[0].ID != "same" {
 			t.Fatalf("%v %v", chats, err)
@@ -158,4 +158,42 @@ func TestLoadRejectsCorruptActiveBranch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoadErrorsIdentifyExportLocation(t *testing.T) {
+	tests := []struct {
+		name, conversations, projects string
+		want                          []string
+	}{
+		{"project entry", `[]`, `[null]`, []string{"projects.json", "project entry 1"}},
+		{"conversation container", `{}`, ``, []string{"conversations.json", "expected JSON array"}},
+		{"conversation entry", `[null]`, ``, []string{"conversations.json", "conversation 1"}},
+		{"conversation ID", `[{"id":"bad id"}]`, ``, []string{"conversations.json", "conversation 1", `"bad id"`}},
+		{"unsupported part", `[{"id":"c","current_node":"node-7","mapping":{"node-7":{"message":{"content":{"parts":[42]}}}}}]`, ``, []string{"conversations.json", "conversation 1", `node "node-7"`, "part 1", "unsupported JSON type"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			write(t, filepath.Join(dir, "conversations.json"), tc.conversations)
+			if tc.projects != "" {
+				write(t, filepath.Join(dir, "projects.json"), tc.projects)
+			}
+			chats, err := Load(dir)
+			if err == nil || chats != nil {
+				t.Fatalf("accepted invalid export: %v %v", chats, err)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error %q does not contain %q", err, want)
+				}
+			}
+		})
+	}
+	t.Run("direct JSON uses supplied filename", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "downloaded-export.json")
+		write(t, path, `[null]`)
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "downloaded-export.json: conversation 1") {
+			t.Fatalf("error does not identify direct source: %v", err)
+		}
+	})
 }

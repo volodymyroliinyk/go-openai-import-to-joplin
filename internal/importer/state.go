@@ -10,7 +10,10 @@ import (
 	"strings"
 )
 
+const stateVersion = 1
+
 type projectCheckpoint struct {
+	Version     int              `json:"version"`
 	Project     string           `json:"project_id"`
 	Folder      projectState     `json:"folder"`
 	Destination destinationState `json:"destination"`
@@ -21,7 +24,7 @@ func checkpointName(project string) string {
 }
 
 func checkpointProject(path, project string, folder projectState, destination destinationState) error {
-	return saveJSON(filepath.Join(path+".projects", checkpointName(project)), projectCheckpoint{project, folder, destination})
+	return saveJSON(filepath.Join(path+".projects", checkpointName(project)), projectCheckpoint{stateVersion, project, folder, destination})
 }
 
 func projectCheckpointFiles(path string) ([]string, error) {
@@ -59,8 +62,14 @@ func replayProjects(path string, s *state) error {
 		if err = json.Unmarshal(b, &checkpoint); err != nil {
 			return fmt.Errorf("invalid project checkpoint %s: %w", file, err)
 		}
+		if checkpoint.Version != 0 && checkpoint.Version != stateVersion {
+			return fmt.Errorf("unsupported project checkpoint version %d: %s", checkpoint.Version, file)
+		}
 		if checkpoint.Project == "" || checkpoint.Folder.ID == "" || !checkpoint.Destination.valid() || filepath.Base(file) != checkpointName(checkpoint.Project) {
 			return fmt.Errorf("invalid project checkpoint: %s", file)
+		}
+		if checkpoint.Folder.Title == "" {
+			checkpoint.Folder.Title = "ChatGPT project " + checkpoint.Project
 		}
 		if s.Destination == nil {
 			destination := checkpoint.Destination
@@ -98,8 +107,32 @@ type destinationState struct {
 func (d destinationState) valid() bool { return d.Endpoint != "" && d.RootID != "" }
 
 type state struct {
+	Version     int                     `json:"version"`
 	Destination *destinationState       `json:"destination,omitempty"`
 	Projects    map[string]projectState `json:"projects"`
+}
+
+func migrateAndValidateState(s *state) error {
+	if s.Version != 0 && s.Version != stateVersion {
+		return fmt.Errorf("unsupported state version %d; use a compatible importer or migrate the state", s.Version)
+	}
+	if s.Destination != nil && !s.Destination.valid() {
+		return fmt.Errorf("invalid state destination binding")
+	}
+	if s.Projects == nil {
+		s.Projects = map[string]projectState{}
+	}
+	for project, folder := range s.Projects {
+		if project == "" || folder.ID == "" {
+			return fmt.Errorf("invalid project mapping for %q", project)
+		}
+		if folder.Title == "" {
+			folder.Title = "ChatGPT project " + project
+			s.Projects[project] = folder
+		}
+	}
+	s.Version = stateVersion
+	return nil
 }
 
 func loadState(path string) (state, error) {
@@ -113,12 +146,17 @@ func loadState(path string) (state, error) {
 			return s, fmt.Errorf("invalid state file: %w", e)
 		}
 	}
-	if s.Projects == nil {
-		s.Projects = map[string]projectState{}
+	if e = migrateAndValidateState(&s); e != nil {
+		return s, fmt.Errorf("invalid state file: %w", e)
 	}
 	return s, replayProjects(path, &s)
 }
-func saveState(path string, s state) error { return saveJSON(path, s) }
+func saveState(path string, s state) error {
+	if e := migrateAndValidateState(&s); e != nil {
+		return e
+	}
+	return saveJSON(path, s)
+}
 
 func saveJSON(path string, value any) error {
 	if e := os.MkdirAll(filepath.Dir(path), 0700); e != nil {

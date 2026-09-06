@@ -138,6 +138,37 @@ func TestStateCheckpointReplayAfterCompaction(t *testing.T) {
 	}
 }
 
+func TestStateSchemaMigrationAndValidation(t *testing.T) {
+	t.Run("migrates legacy state", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "state.json")
+		write(t, path, `{"notes":{"old":{}},"projects":{"p":{"joplin_id":"folder"}}}`)
+		s, err := loadState(path)
+		if err != nil || s.Version != stateVersion || s.Projects["p"].Title != "ChatGPT project p" {
+			t.Fatalf("state=%+v err=%v", s, err)
+		}
+		if err = saveState(path, s); err != nil {
+			t.Fatal(err)
+		}
+		b, _ := os.ReadFile(path)
+		if !strings.Contains(string(b), `"version": 1`) || strings.Contains(string(b), `"notes"`) {
+			t.Fatalf("migration was not compacted: %s", b)
+		}
+	})
+
+	for _, data := range []string{
+		`{"version":2,"projects":{}}`,
+		`{"version":1,"destination":{"endpoint":"fake://profile"},"projects":{}}`,
+		`{"version":1,"projects":{"":{"joplin_id":"folder","title":"Project"}}}`,
+		`{"version":1,"projects":{"p":{"title":"Project"}}}`,
+	} {
+		path := filepath.Join(t.TempDir(), "state.json")
+		write(t, path, data)
+		if _, err := loadState(path); err == nil {
+			t.Fatalf("accepted invalid state: %s", data)
+		}
+	}
+}
+
 func TestSyncRejectsCorruptCheckpointBeforeJoplin(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	if err := os.Mkdir(path+".projects", 0700); err != nil {

@@ -194,7 +194,9 @@ State не містить fingerprint Joplin endpoint/profile або root notebo
 
 **Критерій готовності:** state одного destination неможливо непомітно застосувати до іншого.
 
-### BL-13 — Немає явної schema/version validation state (P3)
+### BL-13 — Немає явної schema/version validation state (P3) — ✅ Виконано
+
+**Статус:** виконано 2026-09-05. State і project checkpoints мають schema version 1. Loader відхиляє непідтримувані версії, неповний destination binding, порожні project IDs/folder IDs та явно мігрує version 0: legacy notes видаляються при compaction, а порожній title отримує історичний fallback. Невідомі поля поки зберігають backward-compatible policy ігнорування.
 
 **Де:** `sync.go:24-47`.
 
@@ -204,7 +206,9 @@ JSON decoder ігнорує невідомі поля, version відсутня.
 
 **Рекомендація:** додати schema version, строгі базові інваріанти та явні міграції. Не використовувати blanket `DisallowUnknownFields`, доки не визначена backward compatibility policy.
 
-### BL-14 — Недостатня діагностика джерела помилки export (P3)
+### BL-14 — Недостатня діагностика джерела помилки export (P3) — ✅ Виконано
+
+**Статус:** виконано 2026-09-05. Помилки project/conversation entries, контейнера conversations, ID, active branch і content parts містять filename та доступні conversation/node/part coordinates без приватного content. Порожній conversation ID і невідомі scalar content parts відхиляють весь export замість мовчазного пропуску; object parts зберігаються як JSON.
 
 **Де:** `export.go:172-225, 238-306`.
 

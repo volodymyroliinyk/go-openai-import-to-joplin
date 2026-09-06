@@ -236,10 +236,10 @@ func LoadWithLimits(source string, overrides Limits) ([]Chat, error) {
 		default:
 			return nil, fmt.Errorf("%s: expected array or object", n)
 		}
-		for _, p := range a {
+		for position, p := range a {
 			m := obj(p)
 			if m == nil {
-				return nil, fmt.Errorf("invalid project entry")
+				return nil, fmt.Errorf("%s: project entry %d must be a JSON object", n, position+1)
 			}
 			id := first(m["id"], m["project_id"])
 			if id != "" {
@@ -269,33 +269,33 @@ func LoadWithLimits(source string, overrides Limits) ([]Chat, error) {
 	origins := map[string]conversationOrigin{}
 	order := []string{}
 	for _, n := range names {
+		label := n
+		if labels[n] != "" {
+			label = labels[n]
+		}
 		v, e := read(n)
 		if e != nil {
 			return nil, e
 		}
 		a, e := entries(v, "conversations")
 		if e != nil {
-			return nil, e
+			return nil, fmt.Errorf("%s: %w", label, e)
 		}
 		for position, v := range a {
 			if budget.conversations == limits["conversations"] {
-				return nil, fmt.Errorf("%s: %w", n, limitError("conversations", limits["conversations"], uint64(budget.conversations)+1))
+				return nil, fmt.Errorf("%s: %w", label, limitError("conversations", limits["conversations"], uint64(budget.conversations)+1))
 			}
 			budget.conversations++
 			m := obj(v)
 			if m == nil {
-				return nil, fmt.Errorf("invalid conversation entry")
+				return nil, fmt.Errorf("%s: conversation %d must be a JSON object", label, position+1)
 			}
 			id := first(m["id"], m["conversation_id"])
 			if id == "" {
-				return nil, fmt.Errorf("%s: conversation %d has no id or conversation_id; whole export rejected", n, position+1)
+				return nil, fmt.Errorf("%s: conversation %d has no id or conversation_id; whole export rejected", label, position+1)
 			}
 			if strings.ContainsAny(id, " \t\r\n<>") {
-				return nil, fmt.Errorf("invalid conversation ID")
-			}
-			label := n
-			if labels[n] != "" {
-				label = labels[n]
+				return nil, fmt.Errorf("%s: conversation %d has invalid ID %q", label, position+1, id)
 			}
 			location := fmt.Sprintf("%s conversation %d", label, position+1)
 			if previous, ok := origins[id]; ok {
@@ -310,19 +310,19 @@ func LoadWithLimits(source string, overrides Limits) ([]Chat, error) {
 			title := first(m["title"], "Untitled ChatGPT conversation")
 			projectName := first(p["name"], p["title"], projects[pid])
 			if e := checkNames(limits, id, title); e != nil {
-				return nil, fmt.Errorf("%s: conversation %d: %w", n, position+1, e)
+				return nil, fmt.Errorf("%s: conversation %d: %w", label, position+1, e)
 			}
 			if e := checkNames(limits, pid, projectName); e != nil {
-				return nil, fmt.Errorf("%s: conversation %d: %w", n, position+1, e)
+				return nil, fmt.Errorf("%s: conversation %d: %w", label, position+1, e)
 			}
 			mapping := obj(m["mapping"])
 			if e := limits.check("messages", uint64(len(mapping))); e != nil {
-				return nil, fmt.Errorf("%s: conversation %d: %w", n, position+1, e)
+				return nil, fmt.Errorf("%s: conversation %d: %w", label, position+1, e)
 			}
-			for _, node := range mapping {
+			for nodeID, node := range mapping {
 				parts, _ := obj(obj(obj(node)["message"])["content"])["parts"].([]any)
 				if e := limits.check("parts", uint64(len(parts))); e != nil {
-					return nil, fmt.Errorf("%s: conversation %d: %w", n, position+1, e)
+					return nil, fmt.Errorf("%s: conversation %d node %q: %w", label, position+1, nodeID, e)
 				}
 			}
 			body, e := renderLimited(m, id, limits["render-bytes"]-budget.rendered)
@@ -332,7 +332,7 @@ func LoadWithLimits(source string, overrides Limits) ([]Chat, error) {
 					// configured whole-export budget in the actionable error.
 					e = limitError("render-bytes", limits["render-bytes"], uint64(limits["render-bytes"])+1)
 				}
-				return nil, fmt.Errorf("%s: conversation %d: %w", n, position+1, e)
+				return nil, fmt.Errorf("%s: conversation %d: %w", label, position+1, e)
 			}
 			budget.rendered += int64(len(body))
 			order = append(order, id)
@@ -355,7 +355,11 @@ func render(c object, id string) (string, error) {
 
 func renderLimited(c object, id string, maxBytes int64) (string, error) {
 	mapping := obj(c["mapping"])
-	messages := []object{}
+	type branchMessage struct {
+		nodeID  string
+		message object
+	}
+	messages := []branchMessage{}
 	seen := map[string]bool{}
 	current := str(c["current_node"])
 	if current == "" && len(mapping) != 0 {
@@ -371,7 +375,7 @@ func renderLimited(c object, id string, maxBytes int64) (string, error) {
 			return "", fmt.Errorf("conversation %q active branch references missing or invalid node %q", id, current)
 		}
 		if m := obj(n["message"]); m != nil {
-			messages = append(messages, m)
+			messages = append(messages, branchMessage{nodeID: current, message: m})
 		}
 		current = str(n["parent"])
 	}
@@ -383,11 +387,12 @@ func renderLimited(c object, id string, maxBytes int64) (string, error) {
 		return "", e
 	}
 	messageCount := 0
-	for _, m := range messages {
+	for _, branch := range messages {
+		m := branch.message
 		parts, _ := obj(m["content"])["parts"].([]any)
 		texts := limitedText{limit: maxBytes}
 		partCount := 0
-		for _, p := range parts {
+		for partIndex, p := range parts {
 			var text string
 			switch x := p.(type) {
 			case string:
@@ -398,11 +403,11 @@ func renderLimited(c object, id string, maxBytes int64) (string, error) {
 			case map[string]any:
 				b, e := indentedPart(x, maxBytes-int64(texts.Len()))
 				if e != nil {
-					return "", e
+					return "", fmt.Errorf("conversation %q node %q part %d: %w", id, branch.nodeID, partIndex+1, e)
 				}
 				text = "```json\n" + b + "\n```"
 			default:
-				continue
+				return "", fmt.Errorf("conversation %q node %q part %d has unsupported JSON type %T", id, branch.nodeID, partIndex+1, p)
 			}
 			if partCount > 0 {
 				if e := texts.add("\n\n"); e != nil {
