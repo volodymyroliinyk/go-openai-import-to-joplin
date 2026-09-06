@@ -62,6 +62,31 @@ func TestCLILimits(t *testing.T) {
 	}
 }
 
+func TestCLIRejectsConflictingConversationIDsBeforeStateOrJoplin(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "conversations.json")
+	state := filepath.Join(dir, "state", "state.json")
+	write(t, p, `[{"id":"same","title":"First"},{"id":"same","title":"Second"}]`)
+
+	var out, err bytes.Buffer
+	code := Run(context.Background(), []string{
+		p,
+		"--joplin-token=secret",
+		"--notebook=Knowledge",
+		"--state=" + state,
+		"--joplin-url=http://127.0.0.1:1",
+	}, &out, &err, func(string) string { return "" })
+	if code != 1 || !strings.Contains(err.String(), `conflicting duplicate conversation ID "same"`) || !strings.Contains(err.String(), "no Joplin or state changes") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), err.String())
+	}
+	if strings.Contains(err.String(), "secret") {
+		t.Fatal("token echoed")
+	}
+	if _, statErr := os.Stat(filepath.Dir(state)); !os.IsNotExist(statErr) {
+		t.Fatal("conflicting export touched state", statErr)
+	}
+}
+
 func TestCLIInsecureHTTPPolicy(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "conversations.json")
 	write(t, p, fixture)

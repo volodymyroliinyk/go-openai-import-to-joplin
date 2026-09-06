@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -94,6 +95,7 @@ func LoadWithLimits(source string, overrides Limits) ([]Chat, error) {
 		return nil, fmt.Errorf("source must be a regular file or directory")
 	}
 	readers := map[string]func() (io.ReadCloser, error){}
+	labels := map[string]string{}
 	if info.IsDir() || strings.EqualFold(filepath.Ext(source), ".json") {
 		root := source
 		if !info.IsDir() {
@@ -130,6 +132,7 @@ func LoadWithLimits(source string, overrides Limits) ([]Chat, error) {
 		if !info.IsDir() {
 			readers = map[string]func() (io.ReadCloser, error){}
 			readers["conversations.json"] = func() (io.ReadCloser, error) { return openExportJSON(source, limits) }
+			labels["conversations.json"] = filepath.Base(source)
 			for _, n := range []string{"projects.json", "chatgpt_projects.json"} {
 				full := filepath.Join(root, n)
 				if _, e := os.Stat(full); e == nil {
@@ -259,6 +262,11 @@ func LoadWithLimits(source string, overrides Limits) ([]Chat, error) {
 		return nil, fmt.Errorf("no conversations*.json found")
 	}
 	chats := map[string]Chat{}
+	type conversationOrigin struct {
+		entry    object
+		location string
+	}
+	origins := map[string]conversationOrigin{}
 	order := []string{}
 	for _, n := range names {
 		v, e := read(n)
@@ -285,6 +293,18 @@ func LoadWithLimits(source string, overrides Limits) ([]Chat, error) {
 			if strings.ContainsAny(id, " \t\r\n<>") {
 				return nil, fmt.Errorf("invalid conversation ID")
 			}
+			label := n
+			if labels[n] != "" {
+				label = labels[n]
+			}
+			location := fmt.Sprintf("%s conversation %d", label, position+1)
+			if previous, ok := origins[id]; ok {
+				if reflect.DeepEqual(previous.entry, m) {
+					continue
+				}
+				return nil, fmt.Errorf("conflicting duplicate conversation ID %q in %s and %s; whole export rejected", id, previous.location, location)
+			}
+			origins[id] = conversationOrigin{entry: m, location: location}
 			p := obj(m["project"])
 			pid := first(m["project_id"], m["project_uuid"], p["id"])
 			title := first(m["title"], "Untitled ChatGPT conversation")
@@ -315,9 +335,7 @@ func LoadWithLimits(source string, overrides Limits) ([]Chat, error) {
 				return nil, fmt.Errorf("%s: conversation %d: %w", n, position+1, e)
 			}
 			budget.rendered += int64(len(body))
-			if _, ok := chats[id]; !ok {
-				order = append(order, id)
-			}
+			order = append(order, id)
 			chats[id] = Chat{id, title, pid, projectName, millis(m["create_time"]), millis(m["update_time"]), body}
 		}
 	}

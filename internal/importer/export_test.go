@@ -74,6 +74,56 @@ func TestLoadSpecificFileAndShards(t *testing.T) {
 		t.Fatalf("%v %v", c, e)
 	}
 }
+
+func TestLoadDuplicateConversations(t *testing.T) {
+	t.Run("equivalent entries are deduplicated", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "conversations.json")
+		write(t, p, `{"conversations":[{"id":"same","title":"Chat","mapping":{"node":{"message":null}}},{"mapping":{"node":{"message":null}},"title":"Chat","id":"same"}]}`)
+		chats, err := Load(p)
+		if err != nil || len(chats) != 1 || chats[0].ID != "same" {
+			t.Fatalf("%v %v", chats, err)
+		}
+	})
+
+	t.Run("equivalent entries in ZIP shards are deduplicated", func(t *testing.T) {
+		entry := `[{"id":"same","title":"Chat","mapping":{}}]`
+		p := makeZIP(t, map[string]string{
+			"export/conversations-1.json": entry,
+			"export/conversations-2.json": entry,
+		})
+		chats, err := Load(p)
+		if err != nil || len(chats) != 1 || chats[0].ID != "same" {
+			t.Fatalf("%v %v", chats, err)
+		}
+	})
+
+	t.Run("conflicting shards reject the whole export", func(t *testing.T) {
+		dir := t.TempDir()
+		write(t, filepath.Join(dir, "conversations-2.json"), `[{"id":"same","title":"Older"}]`)
+		write(t, filepath.Join(dir, "conversations-10.json"), `[{"id":"same","title":"Newer"}]`)
+		chats, err := Load(dir)
+		if err == nil || chats != nil || !strings.Contains(err.Error(), `duplicate conversation ID "same"`) || !strings.Contains(err.Error(), "conversations-2.json conversation 1") || !strings.Contains(err.Error(), "conversations-10.json conversation 1") {
+			t.Fatalf("partial or unclear result: %v %v", chats, err)
+		}
+	})
+
+	t.Run("direct JSON conflict reports its real filename", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "downloaded-export.json")
+		write(t, p, `[{"id":"same","title":"First"},{"id":"same","title":"Second"}]`)
+		chats, err := Load(p)
+		if err == nil || chats != nil || !strings.Contains(err.Error(), "downloaded-export.json conversation 1") || !strings.Contains(err.Error(), "downloaded-export.json conversation 2") {
+			t.Fatalf("partial or unclear result: %v %v", chats, err)
+		}
+	})
+
+	t.Run("same rendered note is still a raw conflict", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "conversations.json")
+		write(t, p, `[{"id":"same","title":"Chat","unused":1},{"id":"same","title":"Chat","unused":2}]`)
+		if chats, err := Load(p); err == nil || chats != nil {
+			t.Fatalf("conflict was silently collapsed: %v %v", chats, err)
+		}
+	})
+}
 func TestLoadRejectsBadInputs(t *testing.T) {
 	for _, data := range []string{`{`, `null`, `[1]`, `[] {}`, `[{"id":"bad -->"}]`} {
 		p := filepath.Join(t.TempDir(), "conversations.json")

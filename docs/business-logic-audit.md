@@ -124,7 +124,9 @@ URL validation приймає будь-який `http://host`; token додає�
 
 **Критерій готовності:** випадково заданий `http://remote-host` не отримує token без явної згоди користувача.
 
-### BL-08 — Дублікати conversation ID в export мовчки перезаписуються (P2)
+### BL-08 — Дублікати conversation ID в export мовчки перезаписуються (P2) — ✅ Виконано
+
+**Статус:** виконано 2026-09-05. Повністю семантично еквівалентні JSON entries з одним conversation ID дедуплікуються незалежно від порядку полів. Якщо raw entries відрізняються, весь export відхиляється до Joplin/state mutations із conversation ID та обома filename/position, без вибору за лексикографічним порядком shard або недовіреним timestamp. Діагностика зберігає реальну назву і для переданого напряму JSON-файлу. Додано тести на array/object export, directory/ZIP shards, конфлікт між `conversations-2.json`/`conversations-10.json`, різні raw entries з однаковим rendered результатом і CLI-відмову до Joplin/state access.
 
 **Де:** `export.go:193-231`.
 
