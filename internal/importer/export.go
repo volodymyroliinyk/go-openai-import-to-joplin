@@ -53,6 +53,9 @@ func decode(r io.Reader) (any, error) {
 	}
 	var extra any
 	if e := d.Decode(&extra); e != io.EOF {
+		if e != nil {
+			return nil, e
+		}
 		return nil, fmt.Errorf("unexpected data after JSON document")
 	}
 	return v, nil
@@ -69,10 +72,26 @@ func entries(v any, key string) ([]any, error) {
 }
 
 // Load reads JSON directly from ZIP entries; binary attachments are never extracted.
-func Load(source string) ([]Chat, error) {
+func Load(source string) ([]Chat, error) { return LoadWithLimits(source, nil) }
+
+// LoadWithLimits returns no partial chats on any error. The caller must finish
+// loading the whole export successfully before creating a Joplin client.
+func LoadWithLimits(source string, overrides Limits) ([]Chat, error) {
+	limits := DefaultLimits()
+	for name, value := range overrides {
+		if _, ok := limits[name]; !ok || value <= 0 {
+			return nil, fmt.Errorf("invalid export limit: %s", name)
+		}
+		limits[name] = value
+	}
+	budget := &exportBudget{limits: limits}
+
 	info, e := os.Stat(source)
 	if e != nil {
 		return nil, e
+	}
+	if !info.IsDir() && !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("source must be a regular file or directory")
 	}
 	readers := map[string]func() (io.ReadCloser, error){}
 	if info.IsDir() || strings.EqualFold(filepath.Ext(source), ".json") {
@@ -80,33 +99,67 @@ func Load(source string) ([]Chat, error) {
 		if !info.IsDir() {
 			root = filepath.Dir(source)
 		}
-		files, e := os.ReadDir(root)
-		if e != nil {
-			return nil, e
-		}
-		for _, f := range files {
-			name := f.Name()
-			full := filepath.Join(root, name)
-			if !f.IsDir() && (isConversations(name) || isProjects(name)) {
-				readers[name] = func() (io.ReadCloser, error) { return os.Open(full) }
+		if info.IsDir() {
+			dir, e := os.Open(root)
+			if e != nil {
+				return nil, e
+			}
+			defer dir.Close()
+			var count uint64
+			for {
+				files, e := dir.ReadDir(128)
+				if e != nil && e != io.EOF {
+					return nil, e
+				}
+				for _, f := range files {
+					count++
+					if e := limits.check("entries", count); e != nil {
+						return nil, fmt.Errorf("%s: %w", source, e)
+					}
+					name := f.Name()
+					full := filepath.Join(root, name)
+					if !f.IsDir() && (isConversations(name) || isProjects(name)) {
+						readers[name] = func() (io.ReadCloser, error) { return openExportJSON(full, limits) }
+					}
+				}
+				if e == io.EOF {
+					break
+				}
 			}
 		}
 		if !info.IsDir() {
 			readers = map[string]func() (io.ReadCloser, error){}
-			readers["conversations.json"] = func() (io.ReadCloser, error) { return os.Open(source) }
+			readers["conversations.json"] = func() (io.ReadCloser, error) { return openExportJSON(source, limits) }
 			for _, n := range []string{"projects.json", "chatgpt_projects.json"} {
 				full := filepath.Join(root, n)
 				if _, e := os.Stat(full); e == nil {
-					readers[n] = func() (io.ReadCloser, error) { return os.Open(full) }
+					readers[n] = func() (io.ReadCloser, error) { return openExportJSON(full, limits) }
 				}
 			}
 		}
 	} else {
-		z, e := zip.OpenReader(source)
+		file, e := os.Open(source)
+		if e != nil {
+			return nil, e
+		}
+		defer file.Close()
+		stat, e := file.Stat()
+		if e != nil {
+			return nil, e
+		}
+		indexReader := &guardedZIPIndex{r: file, limit: limits["zip-index-bytes"], active: true}
+		z, e := zip.NewReader(indexReader, stat.Size())
+		if indexReader.err != nil {
+			return nil, fmt.Errorf("%s: %w", source, indexReader.err)
+		}
 		if e != nil {
 			return nil, fmt.Errorf("not a directory, JSON, or ZIP export: %w", e)
 		}
-		defer z.Close()
+		indexReader.active = false
+		if e := limits.check("entries", uint64(len(z.File))); e != nil {
+			return nil, fmt.Errorf("%s: %w", source, e)
+		}
+		var declaredJSON uint64
 		roots := map[string]bool{}
 		for _, f := range z.File {
 			n := f.Name
@@ -127,6 +180,13 @@ func Load(source string) ([]Chat, error) {
 					if _, ok := readers[n]; ok {
 						return nil, fmt.Errorf("duplicate ZIP entry: %s", n)
 					}
+					if e := limits.check("file-bytes", f.UncompressedSize64); e != nil {
+						return nil, fmt.Errorf("%s: %w", n, e)
+					}
+					if f.UncompressedSize64 > uint64(limits["json-bytes"])-declaredJSON {
+						return nil, fmt.Errorf("%s: %w", n, limitError("json-bytes", limits["json-bytes"], declaredJSON+f.UncompressedSize64))
+					}
+					declaredJSON += f.UncompressedSize64
 					readers[n] = f.Open
 				}
 			}
@@ -138,7 +198,11 @@ func Load(source string) ([]Chat, error) {
 			return nil, e
 		}
 		defer r.Close()
-		v, e := decode(r)
+		guard := &guardedJSON{r: r, budget: budget}
+		v, e := decode(guard)
+		if guard.err != nil {
+			e = guard.err
+		}
 		if e != nil {
 			return nil, fmt.Errorf("%s: %w", n, e)
 		}
@@ -176,7 +240,11 @@ func Load(source string) ([]Chat, error) {
 			}
 			id := first(m["id"], m["project_id"])
 			if id != "" {
-				projects[id] = first(m["name"], m["title"], id)
+				title := first(m["name"], m["title"], id)
+				if e := checkNames(limits, id, title); e != nil {
+					return nil, fmt.Errorf("%s: %w", n, e)
+				}
+				projects[id] = title
 			}
 		}
 	}
@@ -201,28 +269,56 @@ func Load(source string) ([]Chat, error) {
 		if e != nil {
 			return nil, e
 		}
-		for _, v := range a {
+		for position, v := range a {
+			if budget.conversations == limits["conversations"] {
+				return nil, fmt.Errorf("%s: %w", n, limitError("conversations", limits["conversations"], uint64(budget.conversations)+1))
+			}
+			budget.conversations++
 			m := obj(v)
 			if m == nil {
 				return nil, fmt.Errorf("invalid conversation entry")
 			}
 			id := first(m["id"], m["conversation_id"])
 			if id == "" {
-				continue
+				return nil, fmt.Errorf("%s: conversation %d has no id or conversation_id; whole export rejected", n, position+1)
 			}
 			if strings.ContainsAny(id, " \t\r\n<>") {
 				return nil, fmt.Errorf("invalid conversation ID")
 			}
 			p := obj(m["project"])
 			pid := first(m["project_id"], m["project_uuid"], p["id"])
-			body, e := render(m, id)
-			if e != nil {
-				return nil, e
+			title := first(m["title"], "Untitled ChatGPT conversation")
+			projectName := first(p["name"], p["title"], projects[pid])
+			if e := checkNames(limits, id, title); e != nil {
+				return nil, fmt.Errorf("%s: conversation %d: %w", n, position+1, e)
 			}
+			if e := checkNames(limits, pid, projectName); e != nil {
+				return nil, fmt.Errorf("%s: conversation %d: %w", n, position+1, e)
+			}
+			mapping := obj(m["mapping"])
+			if e := limits.check("messages", uint64(len(mapping))); e != nil {
+				return nil, fmt.Errorf("%s: conversation %d: %w", n, position+1, e)
+			}
+			for _, node := range mapping {
+				parts, _ := obj(obj(obj(node)["message"])["content"])["parts"].([]any)
+				if e := limits.check("parts", uint64(len(parts))); e != nil {
+					return nil, fmt.Errorf("%s: conversation %d: %w", n, position+1, e)
+				}
+			}
+			body, e := renderLimited(m, id, limits["render-bytes"]-budget.rendered)
+			if e != nil {
+				if failure, ok := e.(*exportLimitError); ok && failure.name == "render-bytes" {
+					// Nested rendering buffers use remaining budgets; report the
+					// configured whole-export budget in the actionable error.
+					e = limitError("render-bytes", limits["render-bytes"], uint64(limits["render-bytes"])+1)
+				}
+				return nil, fmt.Errorf("%s: conversation %d: %w", n, position+1, e)
+			}
+			budget.rendered += int64(len(body))
 			if _, ok := chats[id]; !ok {
 				order = append(order, id)
 			}
-			chats[id] = Chat{id, first(m["title"], "Untitled ChatGPT conversation"), pid, first(p["name"], p["title"], projects[pid]), millis(m["create_time"]), millis(m["update_time"]), body}
+			chats[id] = Chat{id, title, pid, projectName, millis(m["create_time"]), millis(m["update_time"]), body}
 		}
 	}
 	result := make([]Chat, 0, len(order))
@@ -236,6 +332,10 @@ func isConversations(n string) bool {
 }
 func isProjects(n string) bool { return n == "projects.json" || n == "chatgpt_projects.json" }
 func render(c object, id string) (string, error) {
+	return renderLimited(c, id, DefaultLimits()["render-bytes"])
+}
+
+func renderLimited(c object, id string, maxBytes int64) (string, error) {
 	mapping := obj(c["mapping"])
 	messages := []object{}
 	seen := map[string]bool{}
@@ -267,25 +367,43 @@ func render(c object, id string) (string, error) {
 		}
 		sort.SliceStable(messages, func(i, j int) bool { return millis(messages[i]["create_time"]) < millis(messages[j]["create_time"]) })
 	}
-	chunks := []string{}
+	body := limitedText{limit: maxBytes}
+	if e := body.add("<!-- chatgpt-conversation-id: " + id + " -->\n\n"); e != nil {
+		return "", e
+	}
+	messageCount := 0
 	for _, m := range messages {
 		parts, _ := obj(m["content"])["parts"].([]any)
-		texts := []string{}
+		texts := limitedText{limit: maxBytes}
+		partCount := 0
 		for _, p := range parts {
+			var text string
 			switch x := p.(type) {
 			case string:
-				if x != "" {
-					texts = append(texts, x)
+				if x == "" {
+					continue
 				}
+				text = x
 			case map[string]any:
-				b, e := json.MarshalIndent(x, "", "  ")
+				b, e := indentedPart(x, maxBytes-int64(texts.Len()))
 				if e != nil {
 					return "", e
 				}
-				texts = append(texts, "```json\n"+string(b)+"\n```")
+				text = "```json\n" + b + "\n```"
+			default:
+				continue
 			}
+			if partCount > 0 {
+				if e := texts.add("\n\n"); e != nil {
+					return "", e
+				}
+			}
+			if e := texts.add(text); e != nil {
+				return "", e
+			}
+			partCount++
 		}
-		text := strings.TrimSpace(strings.Join(texts, "\n\n"))
+		text := strings.TrimSpace(texts.String())
 		if text == "" {
 			continue
 		}
@@ -303,7 +421,18 @@ func render(c object, id string) (string, error) {
 			}
 			stamp = " · " + t.Format(layout) + "+00:00"
 		}
-		chunks = append(chunks, "## "+label+stamp+"\n\n"+text)
+		if messageCount > 0 {
+			if e := body.add("\n\n---\n\n"); e != nil {
+				return "", e
+			}
+		}
+		if e := body.add("## " + label + stamp + "\n\n"); e != nil {
+			return "", e
+		}
+		if e := body.add(text); e != nil {
+			return "", e
+		}
+		messageCount++
 	}
-	return "<!-- chatgpt-conversation-id: " + id + " -->\n\n" + strings.Join(chunks, "\n\n---\n\n"), nil
+	return body.String(), nil
 }

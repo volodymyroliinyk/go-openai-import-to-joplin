@@ -54,6 +54,7 @@ Use [config/example.env](config/example.env) syntax: `export NAME='value'`. When
 | `--notebook` | `JOPLIN_NOTEBOOK`; destination ID or exact name, required for import |
 | `--joplin-url` | `JOPLIN_URL`, otherwise `http://127.0.0.1:41184` |
 | `--state` | `${XDG_STATE_HOME:-$HOME/.local/state}/chatgpt-import-to-joplin/state.json` |
+| `--limit NAME=VALUE` | Override one resource budget; repeatable |
 | `--dry-run` | Parse and report without importing |
 
 Prefer the environment variable for the token to keep it out of command-line arguments. Summaries go to stdout; errors go to stderr. Exit codes: `0` success, `1` import error, `2` invalid arguments.
@@ -69,6 +70,26 @@ State stores only project mappings; legacy `notes` entries are ignored and remov
 Imports sharing one state path are serialized by an exclusive `STATE_PATH.lock` directory acquired before reading state or contacting Joplin. A competing invocation fails immediately. Normal completion, errors, and handled cancellation release the lock. After a crash or forced kill, confirm that no importer is active before removing the leftover lock directory with `rmdir`. Use one consistent state path for a destination; different state paths do not coordinate. Never share a state file across different Joplin endpoints, profiles, or root notebooks.
 
 The parser supports `conversations.json`, numbered `conversations*.json`, the active message branch, and optional `projects.json`/`project_id` metadata. Without project IDs, chats go into the root notebook. Projects without names use `ChatGPT project ID`. A JSON file argument imports that file only, with optional sibling project metadata. ZIP archives containing multiple export directories are rejected as ambiguous. Attachments remain structured snippets in Markdown; binary assets are not imported.
+
+The whole export is validated before the importer opens the Joplin client or reads or writes state. A malformed export or exceeded resource budget rejects the run without skipping chats. `--dry-run` performs the same complete validation without credentials, network access, or state writes. The default budgets are:
+
+| Limit name | Default | Scope |
+| --- | ---: | --- |
+| `json-bytes` | 1 GiB | Combined uncompressed JSON read |
+| `file-bytes` | 256 MiB | Each JSON file or ZIP entry |
+| `string-bytes` | 16 MiB | One encoded JSON string |
+| `render-bytes` | 512 MiB | Combined rendered Markdown |
+| `zip-index-bytes` | 64 MiB | ZIP central-directory reads |
+| `entries` | 100,000 | Directory or ZIP entries |
+| `json-values` | 2,000,000 | JSON values across input files |
+| `depth` | 256 | JSON nesting depth |
+| `conversations` | 100,000 | Conversations across input files |
+| `messages` | 100,000 | Message nodes in one conversation |
+| `parts` | 100,000 | Content parts in one message |
+| `id-bytes` | 4 KiB | One conversation or project ID |
+| `title-bytes` | 64 KiB | One conversation or project title |
+
+Override a budget only when a trusted, valid export needs it, for example `--limit json-bytes=2GiB --limit conversations=150000`. Byte limits accept integer bytes or the exact `KiB`, `MiB`, and `GiB` suffixes. Errors name the exceeded budget and instruct how to retry the whole export.
 
 ## Development
 

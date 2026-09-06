@@ -96,7 +96,9 @@ Marker шукається регулярним виразом у будь-яко
 
 **Критерій готовності:** кількість повних state rewrites не залежить лінійно від кількості chats; crash після створення folder не спричиняє його дублювання при retry.
 
-### BL-06 — Недовірений export не має resource limits (P1, security hardening)
+### BL-06 — Недовірений export не має resource limits (P1, security hardening) — ✅ Виконано
+
+**Статус:** виконано 2026-09-05. Додано generous budgets для сумарного JSON, одного файла, ZIP index/entries, JSON depth/values/strings, conversations/messages/parts, ID/title та сумарного Markdown. ZIP metadata перевіряється до читання payload, JSON readers контролюють фактичні розпаковані байти. Перевищення будь-якої межі відхиляє весь export до створення Joplin client або доступу до state; CLI підтримує повторюваний `--limit NAME=VALUE`, а dry-run виконує ту саму повну валідацію. Додано boundary-тести для файлів, ZIP, JSON scanner, render та CLI.
 
 **Де:** `export.go:47-58, 105-145, 193-231`.
 

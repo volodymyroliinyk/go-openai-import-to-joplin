@@ -39,3 +39,25 @@ func TestCLIExitCodes(t *testing.T) {
 		}
 	}
 }
+
+func TestCLILimits(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "conversations.json")
+	write(t, p, fixture)
+	for _, tc := range []struct {
+		args    []string
+		code    int
+		message string
+	}{
+		{[]string{p, "--dry-run", "--limit", "file-bytes=1KiB"}, 0, "Parsed 1 conversations"},
+		{[]string{p, "--dry-run", "--limit=file-bytes=10"}, 1, "export limit file-bytes exceeded"},
+		{[]string{p, "--dry-run", "--limit=unknown=1"}, 2, "known NAME=VALUE"},
+		{[]string{p, "--dry-run", "--limit=file-bytes=0"}, 2, "positive integer"},
+	} {
+		var out, err bytes.Buffer
+		code := Run(context.Background(), tc.args, &out, &err, func(string) string { return "" })
+		combined := out.String() + err.String()
+		if code != tc.code || !strings.Contains(combined, tc.message) {
+			t.Fatalf("%v: code %d, output %q", tc.args, code, combined)
+		}
+	}
+}
