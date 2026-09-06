@@ -138,7 +138,9 @@ Shards з однаковим conversation ID зводяться в map за пр
 
 **Критерій готовності:** конфліктні дублікати не зникають мовчки й вибір не залежить випадково від лексикографії.
 
-### BL-09 — Пошкоджений active branch імпортується частково без сигналу (P2)
+### BL-09 — Пошкоджений active branch імпортується частково без сигналу (P2) — ✅ Виконано
+
+**Статус:** виконано 2026-09-05. Active branch мусить завершитися кореневим node з порожнім parent. Missing/invalid node, цикл та відсутній `current_node` при непорожньому mapping відхиляють весь export до Joplin/state mutations із filename, conversation position/ID та node ID. Небезпечний fallback зі змішуванням усіх branches видалено.
 
 **Де:** `export.go:238-269`.
 

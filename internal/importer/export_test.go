@@ -141,16 +141,21 @@ func TestLoadRejectsBadInputs(t *testing.T) {
 		t.Fatal("accepted missing source")
 	}
 }
-func TestLoadCycleAndFallback(t *testing.T) {
-	for _, current := range []string{"a", "missing"} {
-		p := filepath.Join(t.TempDir(), "conversations.json")
-		write(t, p, `[{"id":"c","current_node":"`+current+`","mapping":{"a":{"parent":"b","message":{"create_time":2,"content":{"parts":["Second"]}}},"b":{"parent":"a","message":{"create_time":1,"content":{"parts":["First"]}}}}}]`)
-		c, e := Load(p)
-		if e != nil || len(c) != 1 {
-			t.Fatalf("%v", e)
-		}
-		if strings.Index(c[0].Body, "First") > strings.Index(c[0].Body, "Second") {
-			t.Fatal(c[0].Body)
-		}
+func TestLoadRejectsCorruptActiveBranch(t *testing.T) {
+	for _, tc := range []struct {
+		name, current, mapping, want string
+	}{
+		{"cycle", "a", `"a":{"parent":"b","message":{"content":{"parts":["Second"]}}},"b":{"parent":"a","message":{"content":{"parts":["First"]}}}`, `cycle at node "a"`},
+		{"missing node", "missing", `"a":{"message":{"content":{"parts":["Unrelated"]}}}`, `missing or invalid node "missing"`},
+		{"missing parent", "a", `"a":{"parent":"gone","message":{"content":{"parts":["Partial"]}}}`, `missing or invalid node "gone"`},
+		{"no current node", "", `"a":{"message":{"content":{"parts":["Would be fallback"]}}}`, "no current_node"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "conversations.json")
+			write(t, p, `[{"id":"c","current_node":"`+tc.current+`","mapping":{`+tc.mapping+`}}]`)
+			if chats, err := Load(p); err == nil || chats != nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "conversations.json: conversation 1") {
+				t.Fatalf("partial or unclear result: %v %v", chats, err)
+			}
+		})
 	}
 }

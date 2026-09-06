@@ -357,33 +357,26 @@ func renderLimited(c object, id string, maxBytes int64) (string, error) {
 	mapping := obj(c["mapping"])
 	messages := []object{}
 	seen := map[string]bool{}
-	for current := str(c["current_node"]); current != "" && !seen[current]; {
+	current := str(c["current_node"])
+	if current == "" && len(mapping) != 0 {
+		return "", fmt.Errorf("conversation %q has messages but no current_node", id)
+	}
+	for current != "" {
+		if seen[current] {
+			return "", fmt.Errorf("conversation %q active branch contains a cycle at node %q", id, current)
+		}
 		seen[current] = true
 		n := obj(mapping[current])
 		if n == nil {
-			break
+			return "", fmt.Errorf("conversation %q active branch references missing or invalid node %q", id, current)
 		}
 		if m := obj(n["message"]); m != nil {
 			messages = append(messages, m)
 		}
 		current = str(n["parent"])
 	}
-	if len(messages) > 0 {
-		for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
-			messages[i], messages[j] = messages[j], messages[i]
-		}
-	} else {
-		keys := []string{}
-		for k := range mapping {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			if m := obj(obj(mapping[k])["message"]); m != nil {
-				messages = append(messages, m)
-			}
-		}
-		sort.SliceStable(messages, func(i, j int) bool { return millis(messages[i]["create_time"]) < millis(messages[j]["create_time"]) })
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
 	}
 	body := limitedText{limit: maxBytes}
 	if e := body.add("<!-- chatgpt-conversation-id: " + id + " -->\n\n"); e != nil {
