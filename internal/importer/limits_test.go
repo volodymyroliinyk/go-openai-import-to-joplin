@@ -125,7 +125,7 @@ func TestLoadLimitOnTrailingWhitespace(t *testing.T) {
 }
 
 func TestIndentedPartPreservesJSONAndBoundsAllocation(t *testing.T) {
-	for _, data := range []string{`{}`, `{"a":[],"b":{},"c":[1,{"text":"Тест 😀 \\\" [{}]"}],"d":true,"e":null}`} {
+	for _, data := range []string{`{}`, `{"a":[],"b":{},"c":[1,{"text":"Test 😀 \\\" [{}]"}],"d":true,"e":null}`} {
 		var v map[string]any
 		if err := json.Unmarshal([]byte(data), &v); err != nil {
 			t.Fatal(err)

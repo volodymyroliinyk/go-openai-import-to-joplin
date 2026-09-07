@@ -1,265 +1,152 @@
-# Аудит бізнес-логіки, надійності та безпеки
+# Business logic, reliability, and security audit
 
-Дата аудиту: 2026-09-05<br>
-Обсяг: поточна Go-реалізація CLI (`internal/importer`), CLI entry point, скрипти встановлення та наявні тести.<br>
-Метод: статичний аналіз потоків `Load → Synchronize → Joplin API`, перевірка інваріантів про ідентичність нотаток, повторний імпорт, project notebooks, часткові відмови та недовірені локальні дані.
+Audit date: 2026-09-05<br>
+Scope: the Go CLI implementation in `internal/importer`, its entry point, installation scripts, and tests.<br>
+Method: static analysis of the `Load → Synchronize → Joplin API` flow, including note identity, repeat imports, project notebooks, partial failures, and untrusted local input.
 
-## Резюме
+## Summary
 
-Поточна реалізація компактна, має корисні захисні властивості (атомарна заміна state-файлу, відмова при однаковому marker ID у різних нотатках, заборона HTTP redirect, редагування токена в помилках, dry-run без мережі). Водночас перед активним використанням варто усунути 4 проблеми високого пріоритету:
+The implementation is compact and has useful safety properties: atomic state replacement, rejection of duplicate marker IDs across notes, blocked HTTP redirects, token redaction in errors, and an offline dry-run. The original audit identified high-priority risks involving marker injection, unsafe state mappings, concurrent runs, full-database scans, and repeated state rewrites. All findings below were addressed on 2026-09-05; their original risks are retained as historical context.
 
-1. довільний текст розмови може підробити службовий marker і зламати прив'язку conversation → note;
-2. пошкоджений або підмінений state може спричинити перейменування/переміщення стороннього notebook;
-3. паралельні запуски не координуються й можуть створювати дублікати та втрачати state;
-4. імпортер завантажує тіла всіх нотаток Joplin і багаторазово повністю переписує state, що погано масштабується.
+## Priority scale
 
-Це локальний CLI, тому ризики нижчі, ніж у мережевого сервісу. Проте наслідком найгірших сценаріїв є пошкодження структури або вмісту користувацької бази Joplin, а не лише аварійне завершення імпорту.
+- **P0** — a direct risk of uncontrolled data corruption; fix before broad use.
+- **P1** — a high probability of correctness, confidentiality, or availability failures with real data.
+- **P2** — a material reliability, compatibility, or diagnostics issue.
+- **P3** — hardening, maintainability, or UX work that does not block the basic workflow.
 
-## Шкала пріоритетів
+## Findings
 
-- **P0** — реальна загроза неконтрольованого пошкодження даних; виправити до широкого використання.
-- **P1** — висока ймовірність порушення коректності, конфіденційності або працездатності на реальних даних.
-- **P2** — суттєвий недолік надійності, сумісності чи діагностики.
-- **P3** — hardening, підтримуваність або UX; корисно, але не блокує базовий сценарій.
+### BL-01 — Conversation content could forge an identity marker (P0) — ✅ Complete
 
-## Знахідки
+**Status:** completed in commit `3be5751`. Only an exact marker on the first line establishes identity; marker-like content below it does not affect the index. Regression tests cover injected and multiple markers.
 
-BL-01, BL-02, BL-03, BL-04 і BL-05 виконано. Їхні початкові описи нижче збережено як історію аудиту; актуальні зміни наведено в полі «Статус».
+**Original risk:** arbitrary user or assistant text containing `<!-- chatgpt-conversation-id: victim -->` could associate multiple IDs with one note and cause the wrong note to be overwritten.
 
-### BL-01 — Marker можна підробити вмістом розмови (P0) — ✅ Виконано
+**Acceptance criterion:** content after the service marker cannot affect identity, and one Joplin note cannot represent multiple conversation IDs.
 
-**Статус:** виконано 2026-09-05, коміт `3be5751`. Ідентичність визначає лише marker точного формату в першому рядку; marker-подібний текст нижче не впливає на індекс. Додано регресійні тести.
+### BL-02 — State could claim an unrelated notebook (P0) — ✅ Complete
 
-**Де:** `sync.go:14, 104-112, 157-162`; `export.go:270-306`.
+**Status:** completed in commit `a824c78`. Cached folder IDs, parents, and saved titles are validated before writes. Existing unrelated notebooks are never renamed or moved; a changed project name creates a new managed notebook.
 
-Marker шукається регулярним виразом у будь-якому місці тіла нотатки. Текст повідомлення користувача або асистента переноситься до Markdown майже без екранування. Якщо розмова містить, наприклад, `<!-- chatgpt-conversation-id: victim -->`, одна імпортована нотатка матиме два службово схожі markers. На наступному запуску індекс прив'яже і справжній ID, і `victim` до тієї самої нотатки.
+**Original risk:** corrupt or edited state could point `joplin_id` at the root or an unrelated folder, allowing the importer to rename or move it.
 
-**Наслідки:** неправильна нотатка може бути перезаписана іншою розмовою; два чати можуть послідовно оновлювати одну note; можливі хибні duplicate-marker помилки. Це порушує головний інваріант ідентичності.
+**Acceptance criterion:** replacing a project mapping in state cannot mutate an unrelated folder.
 
-**Рекомендація:** визнавати лише один marker у строго визначеному місці — перший рядок тіла з точним форматом і повним anchor. Відхиляти нотатку з кількома службовими markers або з marker, що не відповідає очікуваному формату. Додати регресійні тести з marker-подібним текстом у user/assistant message та двома різними markers в одній note.
+### BL-03 — Concurrent imports were not locked (P1) — ✅ Complete
 
-**Критерій готовності:** довільний текст після першого службового рядка не впливає на індекс; одна Joplin note не може представляти кілька conversation IDs.
+**Status:** completed in commit `e6cd24b`. An exclusive state-path lock spans state reads, Joplin access, and saves. A competing invocation fails immediately. Tests cover cross-process locking and lock release after errors and cancellation; manual crash recovery is documented.
 
-### BL-02 — State може захопити сторонній notebook (P0) — ✅ Виконано
+**Original risk:** concurrent processes could observe the same snapshots, create duplicate notes or folders, and overwrite each other's state.
 
-**Статус:** виконано 2026-09-05, коміт `a824c78`. Перед записами перевіряються cached folder IDs, parent і збережена назва. Існуючі notebooks не перейменовуються й не переміщуються; зміна назви проєкту створює новий notebook для імпортованих нотаток. Додано регресійні тести.
+**Acceptance criterion:** two runs sharing a state path cannot perform concurrent Joplin writes.
 
-**Де:** `sync.go:130-151`.
+### BL-04 — Loading every Joplin note was the primary bottleneck (P1) — ✅ Complete
 
-Для project ID береться збережений `joplin_id`; якщо такий folder існує, імпортер без додаткової перевірки вважає його project notebook. Потім він змінює title і `parent_id`. Пошкоджений, застарілий або вручну відредагований state може вказувати на root notebook, його предка чи будь-який сторонній folder.
+**Status:** global paginated basic search for `chatgpt-conversation-id:` now discovers candidates. Only candidates are fetched and their first lines are validated locally. Search errors stop the import before writes. HTTP tests cover pagination, failures, and a database with 10,000 unrelated notes.
 
-**Наслідки:** перейменування або переміщення чужого notebook; для root можливе навіть намагання зробити його дочірнім самому собі. Помилка state перетворюється на мутацію Joplin.
+**Original risk:** importing a small export required downloading every note body, causing runtime, memory use, and API traffic to scale with the whole Joplin database.
 
-**Рекомендація:** перед PUT перевіряти ownership/очікуване походження folder. Мінімально: заборонити `p.ID == root`, перевіряти поточного/історичного parent і title, а за неоднозначності зупинятись без запису. Надійніший варіант — власний стабільний marker/metadata для project folders або окремий namespace під керованим container notebook.
+**Acceptance criterion:** normal repeat imports scale with matching candidates while preserving global marker discovery.
 
-**Критерій готовності:** довільна підміна project `joplin_id` у state не може змінити існуючий неімпортерний folder.
+### BL-05 — State was fully encoded and synchronized after every chat (P1) — ✅ Complete
 
-### BL-03 — Немає блокування паралельних імпортів (P1) — ✅ Виконано
+**Status:** the note cache was removed. Each newly created project folder receives an atomic checkpoint before note writes; the main state is compacted once after a successful pass, then checkpoints are removed. Replay preserves mappings after failures or process exit.
 
-**Статус:** виконано 2026-09-05, коміт `e6cd24b`. Блокування спільного state охоплює читання state, доступ до Joplin і збереження; конкурентний запуск одразу завершується з помилкою. Додано міжпроцесний тест і перевірки звільнення lock після помилки та скасування. Ручне відновлення після аварії описано в README.
+**Original risk:** repeated full rewrites produced quadratic I/O and left difficult crash windows. The unavoidable gap between a successful Joplin folder POST and its local checkpoint is documented for manual recovery.
 
-**Де:** `sync.go:30-70, 72-196`.
+**Acceptance criterion:** full state rewrites do not grow linearly with chat count, and a checkpointed folder is reused after retry.
 
-Два процеси можуть одночасно прочитати однакові snapshots Joplin і state, обидва не побачити майбутню note/folder, створити дублікати, а потім по черзі замінити state власною версією. Атомарний `rename` захищає лише від частково записаного JSON, але не від lost update.
+### BL-06 — Untrusted exports had no resource limits (P1) — ✅ Complete
 
-**Наслідки:** дублікати notes/project notebooks, duplicate-marker блокування наступного запуску, втрачені state mappings. Сценарій реалістичний при повторному запуску з терміналу або scheduler, навіть якщо scheduler не входить у scope продукту.
+**Status:** limits cover aggregate JSON, individual files, ZIP indexes and entries, JSON depth, values and strings, conversations, messages, parts, IDs, titles, and rendered Markdown. ZIP metadata is checked before payload reads; actual decompressed bytes are guarded. `--limit NAME=VALUE` provides explicit overrides.
 
-**Рекомендація:** process-level lock поруч зі state на весь critical section від читання state/Joplin index до фінального save. При зайнятому lock — чітка помилка, без очікування або з коротким керованим timeout. Окремо документувати, що один state не можна спільно використовувати для різних Joplin profiles/roots.
+**Original risk:** malformed or adversarial files could exhaust memory, disk, or CPU before reaching Joplin.
 
-**Критерій готовності:** два одночасні запуски з одним state не виконують конкурентних Joplin writes.
+**Acceptance criterion:** budget violations return controlled errors before Joplin or state access.
 
-### BL-04 — Повне сканування всіх Joplin notes є головним bottleneck (P1) — ✅ Виконано
+### BL-07 — Tokens could be sent over plain HTTP to remote hosts (P1) — ✅ Complete
 
-**Статус:** виконано 2026-09-05. Замість повного завантаження `/notes` використовується пагінований basic search `/search` за `/"chatgpt-conversation-id:"` у всій базі. Імпортер отримує лише кандидатів і перевіряє перший рядок локально; переміщені/legacy notes, відсутній або застарілий state та дублікати підтримуються. Помилки пошуку зупиняють імпорт до записів, без fallback до повного завантаження. Додано HTTP-регресії з 10 000 сторонніх нотаток, пагінацією та помилками. Пошук усередині Joplin усе ще може залежати від розміру бази.
+**Status:** plain HTTP is allowed by default only for `localhost`, `127.0.0.0/8`, and `::1`. Remote endpoints require HTTPS unless the user explicitly supplies `--allow-insecure-http`, which emits a redacted warning. The policy is checked before locking state or making a request.
 
-**Де:** `joplin.go:93-117`; `sync.go:100-113`.
+**Original risk:** a mistyped remote HTTP URL could expose the Web Clipper token in transit.
 
-Кожен імпорт пагінує всю колекцію notes, завантажуючи `body` кожної нотатки, незалежно від destination notebook, `source` або кількості чатів в export. У великій базі це домінує за мережею, пам'яттю й часом та може розкрити імпортеру вміст нотаток, які не мають стосунку до ChatGPT.
+**Acceptance criterion:** a remote plain-HTTP endpoint cannot receive the token without explicit user consent.
 
-**Наслідки:** O(усі нотатки + розмір усіх body) на кожний запуск; 30-секундний client timeout може обірвати окремий повільний page request; зайве охоплення приватних даних.
+### BL-08 — Duplicate conversation IDs silently overwrote each other (P2) — ✅ Complete
 
-**Рекомендація:** дослідити можливості Joplin API для server-side search/filter за marker або `source`; звузити пошук до керованого root subtree, не втрачаючи здатність знайти вручну переміщену імпортовану note. Якщо API не дає надійного фільтра — використовувати state IDs як fast path з точковим GET та контрольоване повне reconciliation scan як fallback/окремий режим.
+**Status:** semantically equivalent raw JSON entries are deduplicated regardless of field order. Conflicting entries reject the whole export before writes and report both source locations. Tests cover object and array containers, directories, ZIP shards, lexical shard ordering, and direct JSON input.
 
-**Критерій готовності:** типовий повторний імпорт виконує роботу пропорційно імпортованим chats, а повний scan запускається лише за визначеної потреби.
+**Original risk:** map assignment made the selected conversation depend on shard order or an untrusted timestamp.
 
-### BL-05 — State повністю кодується та `fsync`-иться після кожного чату (P1) — ✅ Виконано
+**Acceptance criterion:** conflicting duplicates never disappear silently or depend on incidental lexical ordering.
 
-**Статус:** виконано 2026-09-05. Прибрано кеш notes; legacy entries ігноруються та видаляються при успішному збереженні. Кожний новий project folder отримує окремий атомарний checkpoint до запису notes. Повний state записується один раз після успішного проходу, після чого checkpoints видаляються. Replay зберігає mappings після помилок і аварійного виходу після checkpoint. Додано тести на 200 chats / 100 projects, аварійний вихід процесу та помилки checkpoint/compaction. Вікно між успішним Joplin POST і локальним checkpoint не є атомарним; відновлення mapping у цьому випадку описано в README.
+### BL-09 — A corrupt active branch could be imported partially (P2) — ✅ Complete
 
-**Де:** `sync.go:49-70, 151-154, 190-193`.
+**Status:** the active branch must terminate at a root node with an empty parent. Missing or invalid nodes, cycles, and absent `current_node` values in non-empty mappings reject the full export before writes. The unsafe fallback that mixed branches was removed.
 
-Після project mapping і після кожної note весь state серіалізується, синхронізується на диск і перейменовується. `Notes` росте історично й не використовується для пошуку або change detection: авторитетним індексом фактично є Joplin marker.
+**Original risk:** a successful run could overwrite a complete note with a truncated or mixed conversation.
 
-**Наслідки:** приблизно O(N²) серіалізації для N чатів плюс до двох durability barriers на project chat; надмірне зношування диска. Старі note entries не очищаються і збільшують кожен наступний запис.
+**Acceptance criterion:** no existing note is replaced with a partial branch without an explicit policy and diagnostic.
 
-**Рекомендація:** визначити мінімальні recovery checkpoints. Project mapping справді треба зберігати відразу після створення folder, інакше retry може створити дублікат. Note state зараз не дає такої гарантії, бо marker у Joplin вже є authoritative; його можна прибрати або batch-save наприкінці. Розглянути journal/append-only checkpoint для щойно створених folders і один compact state save після успішного проходу.
+### BL-10 — Partial success was not reported and preflight was incomplete (P2) — ✅ Complete
 
-**Критерій готовності:** кількість повних state rewrites не залежить лінійно від кількості chats; crash після створення folder не спричиняє його дублювання при retry.
+**Status:** export validity, marker identity, input IDs, project consistency, and cached folder ownership are checked before the first mutation. Failures after a successful mutation return a typed partial result; the CLI prints counters, states that changes were not rolled back, and recommends a marker-based retry.
 
-### BL-06 — Недовірений export не має resource limits (P1, security hardening) — ✅ Виконано
+**Original risk:** users could interpret a failed import as having made no changes even though earlier Joplin writes remained.
 
-**Статус:** виконано 2026-09-05. Додано generous budgets для сумарного JSON, одного файла, ZIP index/entries, JSON depth/values/strings, conversations/messages/parts, ID/title та сумарного Markdown. ZIP metadata перевіряється до читання payload, JSON readers контролюють фактичні розпаковані байти. Перевищення будь-якої межі відхиляє весь export до створення Joplin client або доступу до state; CLI підтримує повторюваний `--limit NAME=VALUE`, а dry-run виконує ту саму повну валідацію. Додано boundary-тести для файлів, ZIP, JSON scanner, render та CLI.
+**Acceptance criterion:** every post-write failure clearly reports partial completion and safe recovery steps.
 
-**Де:** `export.go:47-58, 105-145, 193-231`.
+### BL-11 — Conflicting project metadata caused repeated PUTs and unstable names (P2) — ✅ Complete
 
-JSON повністю декодується в `any`, усі conversations і rendered bodies утримуються в пам'яті. Для ZIP немає ліміту compressed/uncompressed size, кількості entries, JSON nesting чи максимальної довжини body/title/ID. Перевірка ZIP path traversal корисна, але не захищає від decompression bomb або величезного JSON.
+**Status:** chats are aggregated by project ID before writes and assigned one canonical name, including the documented fallback. Conflicting names reject the full import; identical names create at most one folder. State records the actual canonical title.
 
-**Наслідки:** локальний DoS через RAM/disk pressure або дуже довгу обробку спеціально сформованого чи аномально великого export. CLI читає вручну завантажений файл, тому це не remote RCE, але boundary все одно недовірений.
+**Original risk:** one project could be renamed repeatedly, with the final name determined by sort order.
 
-**Рекомендація:** ввести документовані generous limits: загальний uncompressed JSON size, розмір одного entry, кількість conversations/messages/parts та максимальні ID/title. Обгортати readers в `io.LimitedReader`; перевіряти ZIP metadata, але не покладатися лише на нього. За потреби перейти до streaming decode масиву.
+**Acceptance criterion:** one project ID produces at most one folder mutation per run and has a deterministic name.
 
-**Критерій готовності:** перевищення лімітів завершується контрольованою помилкою до неконтрольованого споживання пам'яті.
+### BL-12 — State was not bound to a Joplin profile and destination (P2) — ✅ Complete
 
-### BL-07 — HTTP token дозволено надсилати відкритим текстом на віддалений host (P1) — ✅ Виконано
+**Status:** state and project checkpoints are bound to a normalized Joplin endpoint and resolved root notebook ID. A mismatch stops before marker search or mutations and instructs the user to choose the correct state path. Legacy mappings without a binding require explicit migration.
 
-**Статус:** виконано 2026-09-05. `http://` за замовчуванням дозволено лише для `localhost`, IPv4 loopback range `127.0.0.0/8` та `::1`; remote endpoints мусять використовувати HTTPS. Повторюваний ризик можна прийняти лише явно через `--allow-insecure-http`, який друкує попередження без token. Policy перевіряється до state lock і першого HTTP request; redirect ban збережено. Додано URL/CLI тести для loopback, remote IPv4/IPv6, HTTPS, override та відсутності token у помилках.
+**Original risk:** folder mappings from one profile or root could accidentally apply to another destination.
 
-**Де:** `joplin.go:45-59`; `cli.go:25-28`.
+**Acceptance criterion:** state from one destination cannot be silently applied to another.
 
-URL validation приймає будь-який `http://host`; token додається в query string кожного запиту. Для loopback це відповідає типовій моделі Joplin Web Clipper. Для віддаленого host token проходить мережею без TLS і може потрапляти в access/proxy logs через URL.
+### BL-13 — State lacked explicit schema-version validation (P3) — ✅ Complete
 
-**Наслідки:** компрометація Web Clipper token дає доступ до Joplin API в межах доступності endpoint. Передача token у query диктується API, але дозвіл plain HTTP поза loopback — контрольований ризик клієнта.
+**Status:** state and checkpoints use schema version 1. The loader rejects unsupported versions, incomplete destination bindings, and empty project or folder IDs. Version 0 is migrated explicitly; legacy note entries are removed during compaction. Unknown fields remain ignored for backward compatibility.
 
-**Рекомендація:** дозволяти `http` за замовчуванням лише для loopback (`localhost`, `127.0.0.0/8`, `::1`); для інших host вимагати `https` або явний небезпечний override з попередженням. Не друкувати повний URL запитів. Зберегти redirect ban.
+**Original risk:** future or partially invalid state could be misinterpreted silently.
 
-**Критерій готовності:** випадково заданий `http://remote-host` не отримує token без явної згоди користувача.
+### BL-14 — Export errors lacked actionable source coordinates (P3) — ✅ Complete
 
-### BL-08 — Дублікати conversation ID в export мовчки перезаписуються (P2) — ✅ Виконано
+**Status:** project and conversation errors include filenames and available conversation, node, and part coordinates without printing private content. Empty conversation IDs and unsupported scalar parts reject the entire export; object parts are preserved as JSON.
 
-**Статус:** виконано 2026-09-05. Повністю семантично еквівалентні JSON entries з одним conversation ID дедуплікуються незалежно від порядку полів. Якщо raw entries відрізняються, весь export відхиляється до Joplin/state mutations із conversation ID та обома filename/position, без вибору за лексикографічним порядком shard або недовіреним timestamp. Діагностика зберігає реальну назву і для переданого напряму JSON-файлу. Додано тести на array/object export, directory/ZIP shards, конфлікт між `conversations-2.json`/`conversations-10.json`, різні raw entries з однаковим rendered результатом і CLI-відмову до Joplin/state access.
+**Original risk:** users could not locate invalid records in large exports, while some invalid content was silently skipped.
 
-**Де:** `export.go:193-231`.
+### BL-15 — Critical recovery and security paths lacked end-to-end tests (P3) — ✅ Complete
 
-Shards з однаковим conversation ID зводяться в map за правилом “останній файл у лексикографічному порядку перемагає”. Не перевіряються ані еквівалентність, ані `update_time`; природне сортування shard numbers також відсутнє (`conversations-10.json` іде перед `conversations-2.json`).
+**Status:** regression and integration tests cover marker injection, secondary IDs in content, duplicate markers, unsafe folder mappings, cross-process locks, path aliases, process exit after checkpoints, replay after compaction failure, ambiguous note writes, resource limits, remote HTTP policy, and partial-result reporting. Tests use fake clients, subprocesses, and local `httptest` servers—never live Joplin accounts or private exports.
 
-**Наслідки:** може бути обрано старішу або пошкоджену копію, а користувач не бачить конфлікту. Результат залежить від назв файлів, не від бізнес-часу.
+## Recommended architecture
 
-**Рекомендація:** однакові еквівалентні записи дедуплікувати; для різних — або обирати за валідним `update_time` з warning/report, або fail closed із назвами shards. Додати natural ordering лише якщо формат export його гарантує.
+Joplin remains authoritative for note identity through exact markers. State contains only versioned, destination-bound ownership mappings for project folders. A future state-assisted fast path may use note IDs for targeted GET requests, but each result must verify its marker and fall back to reconciliation on mismatch. State must never become the sole source of note identity.
 
-**Критерій готовності:** конфліктні дублікати не зникають мовчки й вибір не залежить випадково від лексикографії.
+## Properties to preserve
 
-### BL-09 — Пошкоджений active branch імпортується частково без сигналу (P2) — ✅ Виконано
+- Dry-run requires no credentials, network, or state writes.
+- Notes absent from an export are not deleted.
+- Local edits are overwritten only when the desired imported note differs.
+- Duplicate markers stop the import before mutations.
+- State uses temporary files, `fsync`, and atomic rename.
+- Redirects are blocked, response bodies are excluded from errors, and tokens are redacted.
+- ZIP entries are read in place, and path traversal names are rejected.
+- The standard-library-only, CGO-disabled, one-shot CLI design keeps the attack surface small.
 
-**Статус:** виконано 2026-09-05. Active branch мусить завершитися кореневим node з порожнім parent. Missing/invalid node, цикл та відсутній `current_node` при непорожньому mapping відхиляють весь export до Joplin/state mutations із filename, conversation position/ID та node ID. Небезпечний fallback зі змішуванням усіх branches видалено.
+## Audit limitations
 
-**Де:** `export.go:238-269`.
-
-Якщо chain від `current_node` обривається на відсутньому parent або входить у цикл після хоча б одного message, код повертає часткову історію як успішну. Fallback до всіх nodes використовується лише коли не зібрано жодного message; він, своєю чергою, змішує альтернативні branches.
-
-**Наслідки:** успішний запуск може перезаписати повну Joplin note урізаною розмовою. Користувач бачить `Done`, а не warning про втрату контенту.
-
-**Рекомендація:** розрізняти валідне досягнення root, missing node та cycle. Для structural corruption — fail до Joplin writes або позначати conversation як skipped із non-zero result. Fallback “усі nodes за часом” зробити явним compatibility mode, бо він не відтворює одну гілку.
-
-**Критерій готовності:** importer не перезаписує існуючу note частковим branch без явного повідомлення/підтвердженої політики.
-
-### BL-10 — Частковий успіх не відображений у підсумку та немає preflight усіх мутацій (P2) — ✅ Виконано
-
-**Статус:** виконано 2026-09-05. Перевірки export, marker index, input IDs і cached folder ownership виконуються до першої мутації. Помилка після успішної Joplin mutation повертає типізований partial `Result`; CLI друкує `Failed after` з лічильниками, попереджає, що зміни не відкочено, і радить виправити помилку та повторити той самий import для marker-based resume.
-
-**Де:** `sync.go:125-195`; `cli.go:121-125`.
-
-Sync робить writes послідовно й повертається на першій помилці. Уже створені/оновлені notes залишаються в Joplin, але CLI друкує лише `error`, втрачаючи counters локальної `Result`. Транзакції Joplin немає, тому “import failed” фактично може означати “частково імпортовано”. Перевірки, які можна виконати наперед (конфліктні project metadata, duplicate input IDs після нормалізації тощо), не оформлені як окрема фаза.
-
-**Наслідки:** оператор не знає фактичний обсяг змін; retry зазвичай відновлюється завдяки markers, але folder/state edge cases можуть створити дублікати.
-
-**Рекомендація:** preflight перед першою мутацією; типізована помилка з partial `Result`; CLI повідомляє `Failed after: X created...` без секретів. Документувати resumable semantics і порядок recovery.
-
-**Критерій готовності:** будь-яка помилка після першого write чітко повідомляє, що запуск частковий, і що безпечно зробити далі.
-
-### BL-11 — Project metadata всередині одного ID може спричиняти багато PUT і нестабільну назву (P2) — ✅ Виконано
-
-**Статус:** виконано 2026-09-05. До першої мутації chats агрегуються за ProjectID з єдиною canonical назвою включно з документованим fallback. Різні назви одного ID відхиляють весь import; однакові створюють не більше одного folder. У state зберігається фактична canonical/fallback назва.
-
-**Де:** `sync.go:114-151`.
-
-Chats сортуються за `ProjectName`, потім кожен chat може перейменувати один і той самий folder. Якщо export містить різні names для одного ProjectID, notebook перейменовується кілька разів; фінальне ім'я визначає останній chat у сортуванні. У state `Title` записується `chat.ProjectName`, а не фактичний fallback `title`, і надалі не використовується.
-
-**Наслідки:** зайві API writes, неочевидний результат, можливе “гойдання” назви між exports.
-
-**Рекомендація:** перед sync агрегувати projects за ID, визначати одну canonical name або відхиляти конфлікт; створювати/оновлювати кожен project folder один раз.
-
-**Критерій готовності:** один ProjectID породжує не більше одного folder mutation за запуск і має детерміновану назву.
-
-### BL-12 — Семантика state не ізольована від Joplin profile/root (P2) — ✅ Виконано
-
-**Статус:** виконано 2026-09-05. State і project checkpoints містять binding до нормалізованого Joplin endpoint/profile та resolved root notebook ID. Mismatch відхиляється до marker scan і mutations з інструкцією використати правильний destination/state path. Legacy state з project mappings без binding не застосовується автоматично; порожній state безпечно прив'язується при першому успішному import.
-
-**Де:** `sync.go:16-27, 72-99, 130-151`; CLI має один default state path.
-
-State не містить fingerprint Joplin endpoint/profile або root notebook. Якщо користувач змінить `JOPLIN_URL`, profile чи `--notebook`, старі folder IDs можуть випадково існувати в новому контексті. Це підсилює BL-02; навіть без збігу IDs старі mappings стають сміттям і створюються нові folders.
-
-**Наслідки:** перехресне використання mappings, мутація не того folder або накопичення дублікатів.
-
-**Рекомендація:** versioned state schema з binding до нормалізованого endpoint/profile identity та root ID. При mismatch — fail із інструкцією використати інший state/migrate, не продовжувати автоматично.
-
-**Критерій готовності:** state одного destination неможливо непомітно застосувати до іншого.
-
-### BL-13 — Немає явної schema/version validation state (P3) — ✅ Виконано
-
-**Статус:** виконано 2026-09-05. State і project checkpoints мають schema version 1. Loader відхиляє непідтримувані версії, неповний destination binding, порожні project IDs/folder IDs та явно мігрує version 0: legacy notes видаляються при compaction, а порожній title отримує історичний fallback. Невідомі поля поки зберігають backward-compatible policy ігнорування.
-
-**Де:** `sync.go:24-47`.
-
-JSON decoder ігнорує невідомі поля, version відсутня. Сумісність із попередньою Python-версією заявлена документацією, але не закріплена міграційними тестами/версією. Коректний JSON з частково неправильною семантикою проходить далі.
-
-**Наслідки:** майбутні зміни структури можуть бути мовчки неправильно інтерпретовані; важко безпечно мігрувати ownership metadata для BL-02/BL-12.
-
-**Рекомендація:** додати schema version, строгі базові інваріанти та явні міграції. Не використовувати blanket `DisallowUnknownFields`, доки не визначена backward compatibility policy.
-
-### BL-14 — Недостатня діагностика джерела помилки export (P3) — ✅ Виконано
-
-**Статус:** виконано 2026-09-05. Помилки project/conversation entries, контейнера conversations, ID, active branch і content parts містять filename та доступні conversation/node/part coordinates без приватного content. Порожній conversation ID і невідомі scalar content parts відхиляють весь export замість мовчазного пропуску; object parts зберігаються як JSON.
-
-**Де:** `export.go:172-225, 238-306`.
-
-Частина помилок не містить filename, conversation ID, node ID або JSON path (`invalid project entry`, `invalid conversation entry`, render error). Порожні conversation IDs мовчки пропускаються, невідомі scalar parts мовчки ігноруються.
-
-**Наслідки:** на великому реальному export користувач не може знайти проблемний запис; мовчазний skip суперечить очікуванню повного імпорту.
-
-**Рекомендація:** контекстні помилки `file/conversation/node`; counters skipped/unsupported; policy “fail, warn або preserve JSON” для невідомих content parts. Не логувати сам приватний content.
-
-### BL-15 — Немає end-to-end тестів критичних recovery/security сценаріїв (P3) — ✅ Виконано
-
-**Статус:** виконано 2026-09-05. Regression/integration matrix покриває marker injection і secondary IDs у content, duplicate markers, state mappings на root/foreign/moved folders, міжпроцесний lock і path aliases, process exit після folder checkpoint, replay після compaction failure, втрату відповіді після CreateNote/UpdateNote з ідемпотентним retry, resource limits до Joplin/state writes, remote plain HTTP policy та CLI partial-result reporting. Тести використовують fake clients, subprocesses і локальний `httptest`, без live Joplin або приватних export.
-
-**Де:** `internal/importer/*_test.go`.
-
-Наявні unit/integration-style тести добре покривають базову ідемпотентність, duplicate ID у різних notes, stale state, pagination та token redaction. Відсутні тести на marker injection, кілька IDs в одній note, state → root/foreign folder, конкурентні запуски, crash windows, resource limits, remote plain HTTP і partial-result reporting.
-
-**Рекомендація:** кожне виправлення P0/P1 починати з регресійного тесту. Для concurrency — керований fake client із barriers; для crash recovery — failpoints після CreateFolder/CreateNote/UpdateNote/saveState.
-
-## Запропонований порядок покращень
-
-1. **Захист даних:** BL-01, BL-02, BL-12 — зробити marker строгим, заборонити multiple IDs, прив'язати/валідувати ownership project folders і destination state.
-2. **Конкурентність та recovery:** BL-03, BL-10 — lock, preflight, partial-result reporting, crash tests.
-3. **Продуктивність:** BL-05, потім BL-04 — прибрати зайві full state rewrites і розробити fast path індексації notes без послаблення authoritative marker invariant.
-4. **Недовірений ввід і транспорт:** BL-06, BL-07 — resource limits та HTTPS policy для non-loopback.
-5. **Якість імпорту:** BL-08, BL-09, BL-11, BL-14 — конфлікти shards/projects, strict branch validation, прозорі skipped/unsupported дані.
-6. **Еволюція формату:** BL-13 і розширення тестової матриці BL-15.
-
-## Архітектурне рішення, яке варто прийняти до змін
-
-Найважливіша розвилка — роль state:
-
-- **Joplin-authoritative:** marker залишається джерелом істини для notes; state містить лише versioned, destination-bound ownership mappings для folders. Це найкраще відповідає поточним інваріантам і спрощує BL-05.
-- **State-first fast path:** state зберігає note IDs і використовується для точкових GET, але кожен запис верифікується строгим marker; reconciliation scan запускається при mismatch/за окремою командою. Це швидше на великих базах, але складніше для вручну переміщених/deleted notes і потребує чіткої recovery policy.
-
-Рекомендований компроміс: Joplin-authoritative correctness із перевіреним state fast path та явним reconciliation fallback. Не можна робити state єдиним джерелом identity: його втрата або відновлення backup не повинні дублювати notes.
-
-## Позитивні властивості, які слід зберегти
-
-- dry-run не потребує credentials, мережі або state writes;
-- notes, відсутні в export, не видаляються;
-- локальні edits перезаписуються лише коли desired note справді відрізняється;
-- duplicate marker одного ID у різних notes зупиняє import до мутацій;
-- state пишеться через temporary file + `fsync` + atomic rename;
-- HTTP redirects заборонені, server response body не включається в помилки, token редагується в CLI errors;
-- ZIP entries не витягуються на диск, а path traversal names відхиляються;
-- стандартна бібліотека, CGO off і відсутність background service суттєво зменшують attack surface.
-
-## Межі цього аудиту
-
-- Не використовувався живий Joplin profile або реальний приватний ChatGPT export.
-- Не проводились performance benchmarks на великій базі; оцінки складності випливають із control/data flow.
-- Не перевірялась поведінка конкретної версії Joplin API поза контрактом, закладеним у коді й тестах; перед оптимізацією BL-04 потрібен окремий API spike.
-- Це snapshot-аудит поточного worktree; репозиторій уже містив staged/unstaged зміни, які не змінювались у межах аналізу.
+- No live Joplin profile or private ChatGPT export was used.
+- No large-database performance benchmark was run; complexity estimates follow from control and data flow.
+- Joplin API behavior outside the implemented contract was not tested.
+- This was a snapshot audit of a worktree that already contained unrelated staged or unstaged changes.

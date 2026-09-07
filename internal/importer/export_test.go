@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const fixture = `[{"id":"c1","title":"Тест","project_id":"p1","create_time":10,"update_time":20,"current_node":"a2","mapping":{"a1":{"message":{"author":{"role":"user"},"content":{"parts":["Question"]},"create_time":10}},"a2":{"parent":"a1","message":{"author":{"role":"assistant"},"content":{"parts":["Answer",{"asset":"image"}]},"create_time":11}},"unused":{"parent":"a1","message":{"content":{"parts":["Old branch"]}}}}}]`
+const fixture = `[{"id":"c1","title":"Test title","project_id":"p1","create_time":10,"update_time":20,"current_node":"a2","mapping":{"a1":{"message":{"author":{"role":"user"},"content":{"parts":["Question"]},"create_time":10}},"a2":{"parent":"a1","message":{"author":{"role":"assistant"},"content":{"parts":["Answer",{"asset":"image"}]},"create_time":11}},"unused":{"parent":"a1","message":{"content":{"parts":["Old branch"]}}}}}]`
 
 func write(t *testing.T, p, s string) {
 	t.Helper()

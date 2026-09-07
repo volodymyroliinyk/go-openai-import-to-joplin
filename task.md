@@ -1,27 +1,27 @@
-# Завдання проєкту
+# Project task
 
-Локальна CLI-аплікація для імпорту завантаженого архіву ChatGPT у базу знань Joplin. Користувач отримує архів вручну й запускає команду за потреби. Один запуск виконує імпорт і завершується.
+A local CLI application that imports a manually downloaded ChatGPT archive into a Joplin knowledge base. The user obtains the archive manually and runs the command when needed. Each invocation performs one import and exits.
 
-## Вхідні параметри
+## Inputs
 
-1. Шлях до ZIP-архіву, розпакованої директорії або conversations.json.
-2. Joplin Web Clipper API token через JOPLIN_TOKEN або --joplin-token.
-3. ID або точна назва цільового нотатника через JOPLIN_NOTEBOOK або --notebook.
-4. Необов’язкові URL Joplin, шлях до стану та режим --dry-run.
+1. A path to a ZIP archive, unpacked directory, or `conversations.json`.
+2. A Joplin Web Clipper API token through `JOPLIN_TOKEN` or `--joplin-token`.
+3. The ID or exact name of the destination notebook through `JOPLIN_NOTEBOOK` or `--notebook`.
+4. Optional Joplin URL, state path, and `--dry-run` mode.
 
-## Поведінка
+## Behavior
 
-- Додає нові чати/проекти з вкладеними чатами й оновлює наявні (якщо вони відрізняються контентом) за стабільним ID розмови.
-- Розміщує проєктні чати в дочірніх нотатниках, решту — у цільовому.
-- Зберігає відповідність проєктів нотатникам у локальному файлі стану.
-- Не видаляє нотатки, відсутні в новому експорті.
-- Повідомляє підсумок або помилку через stdout/stderr і код завершення.
+- Adds new chats and projects with their nested chats, and updates existing chats when their content differs, using stable conversation IDs.
+- Places project chats in child notebooks and all other chats in the destination notebook.
+- Stores project-to-notebook mappings in a local state file.
+- Does not delete notes that are absent from a later export.
+- Reports a summary or error through stdout/stderr and the exit code.
 
-## Склад проєкту
+## Project composition
 
-- Мова програмування: Go lang (остання стабільна)
-- CLI, парсер експорту, клієнт Joplin та логіка імпорту.
-- Скрипти збірки, встановлення й оновлення CLI.
-- Автоматизовані тести, приклад shell-конфігурації, документація користувача та AI-агента.
+- Implementation language: the latest stable Go release.
+- CLI, export parser, Joplin client, and import logic.
+- Build, installation, and update scripts.
+- Automated tests, an example shell configuration, user documentation, and AI contributor guidance.
 
-Код має бути безпечним, тестованим і придатним до розширення. Викоритовувати найкращі практики програмування якості коду, швидкодії та надійності.
+The code must be safe, tested, extensible, performant, and reliable, following established Go engineering practices.
