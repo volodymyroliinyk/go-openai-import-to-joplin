@@ -18,7 +18,7 @@ Go 1.27.1+ CLI: manually downloaded ChatGPT export or local Codex session JSONL 
 - `go.mod`: minimum stable Go toolchain; no third-party dependencies.
 - `scripts/{build,install,update}.sh`: packaging and per-user CLI installation.
 - `config/example.env`: optional shell exports; CLI does not load it automatically.
-- `README.md`: user commands and behavior; `task.md`: scope in Ukrainian.
+- `README.md`: user commands and behavior; `CHANGELOG.md`: notable user-facing changes; `task.md`: scope in Ukrainian.
 - `docs/how-to-download-your-data-way-2.md`: manual export help, unrelated to importer internals.
 
 Start with `git status --short` and targeted `rg`/file reads. Preserve staged and unstaged work. Avoid reading private exports/config, build outputs, virtual environments, or the entire repository when a focused read suffices. Ordinary local refactoring needs no external documentation lookup. Keep responses concise: changes, verification, actual limitations.
@@ -49,4 +49,4 @@ git diff --check
 
 Use `go test ./internal/importer -run TestSync -v` (or `TestLoad`) for focused tests. Add tests for substantive behavior changes. Packaging checks: `./scripts/build.sh`; test install/update with temporary XDG directories, never the user's actual configuration. No network or installation is needed once Go is installed. Build scripts set `GOTOOLCHAIN=local` to avoid implicit toolchain downloads.
 
-Update README when commands/configuration change, and this guide when architecture/checks change. Avoid new dependencies or unrelated refactors for small tasks.
+Update README when commands/configuration change, and this guide when architecture/checks change. Every commit containing a notable user-facing change must update the appropriate section under `CHANGELOG.md` in the same commit. Keep entries concise, written in English, and grouped according to Keep a Changelog; move them from `Unreleased` into a dated semantic-version section when preparing a release. Documentation-only, test-only, formatting, and internal maintenance commits may omit a changelog entry when they do not affect users. Avoid new dependencies or unrelated refactors for small tasks.
