@@ -13,3 +13,7 @@ conversations*.json
 /chatgpt-import-to-joplin
 *.test
 coverage.out
+/OpenAI-export/*
+OpenAI-export.zip
+
+/run.md

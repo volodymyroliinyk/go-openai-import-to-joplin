@@ -27,6 +27,18 @@ func TestCLIDryRun(t *testing.T) {
 		}
 	}
 }
+
+func TestCLIDryRunWarnsWhenProjectMetadataIsAbsent(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "conversations.json")
+	write(t, p, `[{"id":"one","mapping":{}}]`)
+
+	var out, err bytes.Buffer
+	code := Run(context.Background(), []string{p, "--dry-run"}, &out, &err, func(string) string { return "" })
+	if code != 0 || !strings.Contains(out.String(), "1 conversations in 0 projects") || !strings.Contains(err.String(), "export contains no project metadata") || !strings.Contains(err.String(), "without project sub-notebooks") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), err.String())
+	}
+}
+
 func TestCLIExitCodes(t *testing.T) {
 	for _, tc := range []struct {
 		args []string

@@ -14,6 +14,10 @@ Confirmation of the account owner may also be required there. The archive can ta
 
 If the portal also freezes, try once in a different browser or private window, without VPN, using your usual login method — for example, Continue with Google, if you registered with Google. These are recommended steps for authorization errors, but there is no guaranteed fix in the help for your specific code. Login help (https://help.openai.com/en/articles/7426629).
 
+The same browser workaround can help with **ChatGPT → Settings → Data controls → Export data**. In one observed case, the request did not complete correctly in Firefox but worked in Chromium, which then displayed confirmation that OpenAI had received the request. This is a practical workaround, not a documented OpenAI browser requirement; browser versions, extensions, cookie settings, and tracking protection may affect the result.
+
+Data export is asynchronous, not a real-time download. After OpenAI accepts the request, preparation can take up to 7 days. Wait for the email or SMS notification, then download the archive promptly because the official download link expires after 24 hours. Do not repeatedly submit the request while an existing export is still being prepared. Official export instructions (https://help.openai.com/en/articles/7260999).
+
 You can now contact support via the chat icon in the bottom right corner of help.openai.com (https://help.openai.com/). Here is the finished text:
 
 ---

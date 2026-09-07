@@ -121,13 +121,16 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	if e != nil {
 		return fail(fmt.Errorf("export validation failed; no Joplin or state changes: %w", e))
 	}
-	if dry {
-		projects := map[string]bool{}
-		for _, c := range chats {
-			if c.ProjectID != "" {
-				projects[c.ProjectID] = true
-			}
+	projects := map[string]bool{}
+	for _, c := range chats {
+		if c.ProjectID != "" {
+			projects[c.ProjectID] = true
 		}
+	}
+	if len(chats) > 0 && len(projects) == 0 {
+		fmt.Fprintln(stderr, "warning: export contains no project metadata; all conversations will be imported into the destination notebook without project sub-notebooks")
+	}
+	if dry {
 		fmt.Fprintf(stdout, "Parsed %d conversations in %d projects\n", len(chats), len(projects))
 		return 0
 	}
