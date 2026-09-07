@@ -1,7 +1,7 @@
 package main
 
 import (
-	"chatgpt-import-to-joplin/internal/importer"
+	"openai-import-to-joplin/internal/importer"
 	"context"
 	"os"
 	"os/signal"

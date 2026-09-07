@@ -10,22 +10,24 @@ import (
 	"strings"
 )
 
-const usage = `Usage: chatgpt-import-to-joplin SOURCE [options]
+const usage = `Usage: openai-import-to-joplin SOURCE [options]
 
-Import a ChatGPT ZIP, directory, or conversations.json into Joplin.
+Import a ChatGPT export or local Codex session JSONL into Joplin.
   --joplin-token TOKEN  Web Clipper token (JOPLIN_TOKEN)
-  --notebook NAME_OR_ID Destination notebook (JOPLIN_NOTEBOOK)
+  --notebook NAME_OR_ID Destination notebook (JOPLIN_CHATGPT_NOTEBOOK/JOPLIN_CODEX_NOTEBOOK)
   --joplin-url URL      API URL (JOPLIN_URL; default http://127.0.0.1:41184)
   --allow-insecure-http Allow token-bearing HTTP requests to a non-loopback host
   --state PATH          State file (default under XDG_STATE_HOME or ~/.local/state)
   --limit NAME=VALUE    Override a resource budget; repeatable (byte units: KiB/MiB/GiB)
   --dry-run             Validate the whole export without network or state writes
+  --codex               Import local Codex session JSONL files instead of a ChatGPT export
   -h, --help            Show help
 `
 
 // Run accepts options before or after the required source, matching the original CLI.
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string) int {
 	token, notebook, base := getenv("JOPLIN_TOKEN"), getenv("JOPLIN_NOTEBOOK"), getenv("JOPLIN_URL")
+	chatGPTNotebook, codexNotebook := getenv("JOPLIN_CHATGPT_NOTEBOOK"), getenv("JOPLIN_CODEX_NOTEBOOK")
 	if base == "" {
 		base = "http://127.0.0.1:41184"
 	}
@@ -37,9 +39,14 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	if stateRoot == "" {
 		stateRoot = filepath.Join(home, ".local", "state")
 	}
-	statePath := filepath.Join(stateRoot, "chatgpt-import-to-joplin", "state.json")
+	statePath := ""
+	openAIStatePath := filepath.Join(stateRoot, "openai-import-to-joplin", "state.json")
+	legacyStatePath := filepath.Join(stateRoot, "chatgpt-import-to-joplin", "state.json")
+	stateExplicit := false
+	notebookExplicit := false
 	source := ""
 	dry := false
+	codex := false
 	allowInsecureHTTP := false
 	limits := DefaultLimits()
 	positional := false
@@ -58,6 +65,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			dry = true
 			continue
 		}
+		if !positional && arg == "--codex" {
+			codex = true
+			continue
+		}
 		if !positional && arg == "--allow-insecure-http" {
 			allowInsecureHTTP = true
 			continue
@@ -71,12 +82,14 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 				target = &token
 			case "--notebook":
 				target = &notebook
+				notebookExplicit = true
 			case "--joplin-url":
 				target = &base
 			case "--limit":
 				target = &limitOption
 			case "--state":
 				target = &statePath
+				stateExplicit = true
 			default:
 				return invalid("unknown option")
 			}
@@ -103,8 +116,16 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	if source == "" {
 		return invalid("source path is required")
 	}
+	notebook = notebookForSource(codex, notebookExplicit, notebook, chatGPTNotebook, codexNotebook)
+	if !stateExplicit {
+		stateName := "chatgpt-state.json"
+		if codex {
+			stateName = "codex-state.json"
+		}
+		statePath = filepath.Join(stateRoot, "openai-import-to-joplin", stateName)
+	}
 	if !dry && (token == "" || notebook == "") {
-		return invalid("--joplin-token and --notebook are required (or set their environment variables)")
+		return invalid("--joplin-token and a destination notebook are required (use --notebook or the source-specific environment variable)")
 	}
 	if statePath == "" {
 		return invalid("--state must not be empty")
@@ -117,7 +138,13 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		fmt.Fprintln(stderr, "error:", message)
 		return 1
 	}
-	chats, e := LoadWithLimits(source, limits)
+	var chats []Chat
+	var e error
+	if codex {
+		chats, e = LoadCodexSessions(source, limits)
+	} else {
+		chats, e = LoadWithLimits(source, limits)
+	}
 	if e != nil {
 		return fail(fmt.Errorf("export validation failed; no Joplin or state changes: %w", e))
 	}
@@ -133,6 +160,15 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	if dry {
 		fmt.Fprintf(stdout, "Parsed %d conversations in %d projects\n", len(chats), len(projects))
 		return 0
+	}
+	if !stateExplicit {
+		var fallback bool
+		if !codex {
+			statePath, fallback = chooseStatePath(statePath, openAIStatePath, legacyStatePath)
+		}
+		if fallback {
+			fmt.Fprintf(stderr, "warning: using previous ChatGPT state path %q; pass --state to select a different file\n", statePath)
+		}
 	}
 	c, e := newClient(token, base, allowInsecureHTTP)
 	if e != nil {
@@ -152,4 +188,29 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	}
 	fmt.Fprintf(stdout, "Done: %d created, %d updated, %d unchanged, %d project notebooks created\n", r.Created, r.Updated, r.Unchanged, r.FoldersCreated)
 	return 0
+}
+
+func notebookForSource(codex, explicit bool, notebook, chatGPTNotebook, codexNotebook string) string {
+	if explicit {
+		return notebook
+	}
+	if codex && codexNotebook != "" {
+		return codexNotebook
+	}
+	if !codex && chatGPTNotebook != "" {
+		return chatGPTNotebook
+	}
+	return notebook
+}
+
+func chooseStatePath(current string, fallbacks ...string) (string, bool) {
+	if _, err := os.Stat(current); !os.IsNotExist(err) {
+		return current, false
+	}
+	for _, fallback := range fallbacks {
+		if _, err := os.Stat(fallback); err == nil {
+			return fallback, true
+		}
+	}
+	return current, false
 }

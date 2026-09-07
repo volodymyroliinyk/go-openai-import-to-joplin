@@ -96,7 +96,7 @@ func TestSyncRetryAfterAmbiguousNoteWrites(t *testing.T) {
 
 	t.Run("update response lost", func(t *testing.T) {
 		f := newFake()
-		f.notes = []Note{{ID: "n", Title: "Old", Body: "<!-- chatgpt-conversation-id: c -->\n\nold", ParentID: "root", Source: "chatgpt-import-to-joplin", SourceURL: "https://chatgpt.com/c/c"}}
+		f.notes = []Note{{ID: "n", Title: "Old", Body: "<!-- chatgpt-conversation-id: c -->\n\nold", ParentID: "root", Source: "openai-import-to-joplin", SourceURL: "https://chatgpt.com/c/c"}}
 		client := &ambiguousWriteClient{fakeClient: f, failUpdate: true}
 		path := filepath.Join(t.TempDir(), "state.json")
 		chat := []Chat{{ID: "c", Title: "Updated", Body: "new"}}

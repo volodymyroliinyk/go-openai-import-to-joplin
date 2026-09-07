@@ -160,7 +160,11 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 		if line, _, _ := strings.Cut(body, "\n"); line != "<!-- chatgpt-conversation-id: "+chat.ID+" -->" {
 			body = "<!-- chatgpt-conversation-id: " + chat.ID + " -->\n\n" + body
 		}
-		n := Note{Title: chat.Title, Body: body, ParentID: parent, Source: "chatgpt-import-to-joplin", SourceURL: "https://chatgpt.com/c/" + chat.ID, CreatedMS: chat.CreatedMS, UpdatedMS: chat.UpdatedMS}
+		sourceURL := "https://chatgpt.com/c/" + chat.ID
+		if strings.HasPrefix(chat.ID, "codex-") {
+			sourceURL = ""
+		}
+		n := Note{Title: chat.Title, Body: body, ParentID: parent, Source: "openai-import-to-joplin", SourceURL: sourceURL, CreatedMS: chat.CreatedMS, UpdatedMS: chat.UpdatedMS}
 		if old, ok := index[chat.ID]; ok {
 			n.ID = old.ID
 			comparison := n

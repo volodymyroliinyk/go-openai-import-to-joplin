@@ -2,13 +2,14 @@
 
 ## Scope
 
-Go 1.27.1+ CLI: manually downloaded ChatGPT export → local Joplin Web Clipper API. Each invocation imports once and exits. Keep this project CLI-only: no background service, scheduler, web UI, or ChatGPT authentication. Use only the Go standard library; build a standalone binary with CGO disabled.
+Go 1.27.1+ CLI: manually downloaded ChatGPT export or local Codex session JSONL → local Joplin Web Clipper API. Each invocation imports once and exits. Keep this project CLI-only: no background service, scheduler, web UI, or OpenAI authentication. Use only the Go standard library; build a standalone binary with CGO disabled.
 
 ## Read only what the task needs
 
-- `cmd/chatgpt-import-to-joplin/main.go`: signal-aware CLI entry point.
+- `cmd/openai-import-to-joplin/main.go`: signal-aware CLI entry point.
 - `internal/importer/cli.go`: arguments, environment defaults, dry-run, exit codes.
 - `internal/importer/export.go`: ZIP/directory/JSON, branches, project metadata, Markdown.
+- `internal/importer/codex.go`: local Codex JSONL discovery, project grouping, and lossless record rendering.
 - `internal/importer/joplin.go`: HTTP client, pagination, global basic marker search, note/folder operations.
 - `internal/importer/sync.go`: authoritative marker index, change detection, synchronization.
 - `internal/importer/state.go`: project-only state, atomic per-project checkpoints, replay and final compaction.
@@ -25,9 +26,10 @@ Start with `git status --short` and targeted `rg`/file reads. Preserve staged an
 ## Invariants
 
 - `<!-- chatgpt-conversation-id: ID -->` identifies imported notes; Joplin is authoritative for note identity. Duplicate markers across notes stop import. Discover candidates with global basic search; do not filter by source or destination, or trust state IDs in place of markers.
-- State caches project notebook IDs. Checkpoint newly created folders before note writes; compact once on success and only then clear checkpoints. Retain state and pending `STATE_PATH.projects/` checkpoints to reuse folders. Missing state must not duplicate notes, but can recreate project notebooks.
+- Source-specific state files cache project notebook IDs separately for ChatGPT and Codex. Checkpoint newly created folders before note writes; compact once on success and only then clear checkpoints. Retain state and pending `STATE_PATH.projects/` checkpoints to reuse folders. Missing state must not duplicate notes, but can recreate project notebooks.
 - Re-import updates differing notes, overwriting local edits; identical notes must not issue PUT requests. Notes absent from the export are not deleted.
 - Source is a required positional path. Dry-run needs no credentials and must avoid network and state writes.
+- Codex mode reads only explicitly supplied JSONL files/directories, skips symlinks, and never reads Codex credentials. Preserve every valid JSONL record in the note; do not silently filter new event types.
 - Preserve ZIP, directory, JSON, and optional project metadata support. Do not assume every export includes projects. Binary attachments are not imported.
 - Never log tokens or commit user exports/configuration. Use fake clients for verification, not live Joplin accounts.
 - Installer preserves existing config; install/update do not run imports. Shell configuration values must be quoted and exported.
@@ -40,7 +42,7 @@ Run from the repository root without installation or network:
 go test ./...
 go test -race ./...
 go vet ./...
-go run ./cmd/chatgpt-import-to-joplin --help
+go run ./cmd/openai-import-to-joplin --help
 for file in scripts/*.sh config/example.env; do bash -n "$file" || break; done
 git diff --check
 ```

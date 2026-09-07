@@ -139,7 +139,7 @@ func TestSyncHTTPMarkerDiscovery(t *testing.T) {
 			existing := Note{ID: "original", Title: "Chat", Body: "<!-- chatgpt-conversation-id: c -->\n\nBody", ParentID: "moved"}
 			if tc.unchanged {
 				existing.ParentID = "root"
-				existing.Source = "chatgpt-import-to-joplin"
+				existing.Source = "openai-import-to-joplin"
 				existing.SourceURL = "https://chatgpt.com/c/c"
 			}
 			candidates := []Note{existing, {ID: "quote", Body: "Ordinary text\n<!-- chatgpt-conversation-id: c -->"}}
