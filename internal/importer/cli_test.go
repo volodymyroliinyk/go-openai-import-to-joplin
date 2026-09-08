@@ -28,34 +28,6 @@ func TestCLIDryRun(t *testing.T) {
 	}
 }
 
-func TestChooseStatePathReusesLegacyState(t *testing.T) {
-	dir := t.TempDir()
-	current := filepath.Join(dir, "openai-import-to-joplin", "chatgpt-state.json")
-	previous := filepath.Join(dir, "openai-import-to-joplin", "state.json")
-	legacy := filepath.Join(dir, "chatgpt-import-to-joplin", "state.json")
-	if err := os.MkdirAll(filepath.Dir(legacy), 0700); err != nil {
-		t.Fatal(err)
-	}
-	write(t, legacy, `{}`)
-	if got, reused := chooseStatePath(current, previous, legacy); got != legacy || !reused {
-		t.Fatalf("got %q, reused=%v", got, reused)
-	}
-	if err := os.MkdirAll(filepath.Dir(previous), 0700); err != nil {
-		t.Fatal(err)
-	}
-	write(t, previous, `{}`)
-	if got, reused := chooseStatePath(current, previous, legacy); got != previous || !reused {
-		t.Fatalf("got %q, reused=%v", got, reused)
-	}
-	if err := os.MkdirAll(filepath.Dir(current), 0700); err != nil {
-		t.Fatal(err)
-	}
-	write(t, current, `{}`)
-	if got, reused := chooseStatePath(current, previous, legacy); got != current || reused {
-		t.Fatalf("got %q, reused=%v", got, reused)
-	}
-}
-
 func TestNotebookForSource(t *testing.T) {
 	for _, tc := range []struct {
 		name                   string

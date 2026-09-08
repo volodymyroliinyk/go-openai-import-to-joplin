@@ -18,7 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- Rename the CLI and installation paths from `chatgpt-import-to-joplin` to `openai-import-to-joplin`, with migration compatibility for existing configuration, state, and note markers.
+- Rename the project, CLI, installation paths, Go module, and release packages to `go-openai-import-to-joplin`.
 - Translate repository documentation into English.
 - Document Ubuntu as the currently tested platform; other Linux distributions, macOS, and Windows remain unverified.
 

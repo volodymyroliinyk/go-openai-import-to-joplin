@@ -114,17 +114,17 @@ package_release() {
   require_command dpkg-deb
 
   output_dir="$project_dir/dist/release/v$version"
-  binary_name="openai-import-to-joplin_${version}_linux_amd64"
-  deb_name="openai-import-to-joplin_${version}_amd64.deb"
+  binary_name="go-openai-import-to-joplin_${version}_linux_amd64"
+  deb_name="go-openai-import-to-joplin_${version}_amd64.deb"
   mkdir -p "$output_dir"
 
   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOTOOLCHAIN=local \
     go build -trimpath -buildvcs=true -ldflags='-s -w' \
-    -o "$output_dir/$binary_name" ./cmd/openai-import-to-joplin
+    -o "$output_dir/$binary_name" ./cmd/go-openai-import-to-joplin
 
-  staging="$(mktemp -d "${TMPDIR:-/tmp}/openai-import-to-joplin-deb.XXXXXX")"
+  staging="$(mktemp -d "${TMPDIR:-/tmp}/go-openai-import-to-joplin-deb.XXXXXX")"
   trap 'rm -rf "$staging"' EXIT
-  install -Dm755 "$output_dir/$binary_name" "$staging/usr/bin/openai-import-to-joplin"
+  install -Dm755 "$output_dir/$binary_name" "$staging/usr/bin/go-openai-import-to-joplin"
   mkdir -p "$staging/DEBIAN"
   sed "s/@VERSION@/$version/" packaging/debian/control >"$staging/DEBIAN/control"
   dpkg-deb --root-owner-group --build "$staging" "$output_dir/$deb_name" >/dev/null
@@ -165,14 +165,14 @@ publish_release() {
   go test ./...
   go test -race ./...
   go vet ./...
-  go run ./cmd/openai-import-to-joplin --help >/dev/null
+  go run ./cmd/go-openai-import-to-joplin --help >/dev/null
   for file in scripts/*.sh config/example.env; do bash -n "$file" || exit; done
   git diff --check
 
   package_release
   output_dir="$project_dir/dist/release/v$version"
-  binary="$output_dir/openai-import-to-joplin_${version}_linux_amd64"
-  deb="$output_dir/openai-import-to-joplin_${version}_amd64.deb"
+  binary="$output_dir/go-openai-import-to-joplin_${version}_linux_amd64"
+  deb="$output_dir/go-openai-import-to-joplin_${version}_amd64.deb"
   notes="$(release_notes)"
   [[ -n "${notes//[[:space:]]/}" ]] || die "the $version changelog section is empty"
 

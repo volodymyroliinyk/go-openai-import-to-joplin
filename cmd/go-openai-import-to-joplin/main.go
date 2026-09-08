@@ -1,8 +1,8 @@
 package main
 
 import (
-	"openai-import-to-joplin/internal/importer"
 	"context"
+	"go-openai-import-to-joplin/internal/importer"
 	"os"
 	"os/signal"
 	"syscall"

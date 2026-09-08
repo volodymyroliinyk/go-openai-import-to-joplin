@@ -10,11 +10,9 @@ config.env
 *.zip
 conversations*.json
 /.idea
-/chatgpt-import-to-joplin
-/openai-import-to-joplin
+/go-openai-import-to-joplin
 *.test
 coverage.out
-/OpenAI-export/*
-OpenAI-export.zip
-
+/data-for-import/OpenAI-export/*
+/data-for-import/*.zip
 /run.md

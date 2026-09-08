@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const noteSource = "go-openai-import-to-joplin"
+
 var marker = regexp.MustCompile(`^<!-- chatgpt-conversation-id: ([^\s<>]+) -->$`)
 
 type Result struct{ Created, Updated, Unchanged, FoldersCreated int }
@@ -164,7 +166,7 @@ func Synchronize(ctx context.Context, c Client, chats []Chat, notebook, statePat
 		if strings.HasPrefix(chat.ID, "codex-") {
 			sourceURL = ""
 		}
-		n := Note{Title: chat.Title, Body: body, ParentID: parent, Source: "openai-import-to-joplin", SourceURL: sourceURL, CreatedMS: chat.CreatedMS, UpdatedMS: chat.UpdatedMS}
+		n := Note{Title: chat.Title, Body: body, ParentID: parent, Source: noteSource, SourceURL: sourceURL, CreatedMS: chat.CreatedMS, UpdatedMS: chat.UpdatedMS}
 		if old, ok := index[chat.ID]; ok {
 			n.ID = old.ID
 			comparison := n

@@ -6,7 +6,7 @@ Go 1.27.1+ CLI: manually downloaded ChatGPT export or local Codex session JSONL 
 
 ## Read only what the task needs
 
-- `cmd/openai-import-to-joplin/main.go`: signal-aware CLI entry point.
+- `cmd/go-openai-import-to-joplin/main.go`: signal-aware CLI entry point.
 - `internal/importer/cli.go`: arguments, environment defaults, dry-run, exit codes.
 - `internal/importer/export.go`: ZIP/directory/JSON, branches, project metadata, Markdown.
 - `internal/importer/codex.go`: local Codex JSONL discovery, project grouping, and lossless record rendering.
@@ -42,7 +42,7 @@ Run from the repository root without installation or network:
 go test ./...
 go test -race ./...
 go vet ./...
-go run ./cmd/openai-import-to-joplin --help
+go run ./cmd/go-openai-import-to-joplin --help
 for file in scripts/*.sh config/example.env; do bash -n "$file" || break; done
 git diff --check
 ```

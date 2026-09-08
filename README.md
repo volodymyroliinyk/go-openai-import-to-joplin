@@ -1,4 +1,4 @@
-# OpenAI conversations import to Joplin
+# Go OpenAI conversations import to Joplin
 
 Local CLI importer of a downloaded ChatGPT export or local Codex transcripts into Joplin. Each invocation imports once and exits. Each chat becomes a Markdown note; project chats go into child notebooks, and other chats go into the selected root notebook. Re-running updates existing notes without duplicating them.
 
@@ -9,7 +9,7 @@ This is an unofficial community project. It is not affiliated with or endorsed b
 - [Go 1.27.1](https://go.dev/dl/) or newer to build; the compiled binary needs no Go or Python installation.
 - Joplin Desktop running with Web Clipper enabled in **Tools → Options → Web Clipper**.
 - A Web Clipper token and an existing destination notebook.
-- A manually downloaded ChatGPT export: ZIP, unpacked directory, or `conversations.json`.
+- A manually downloaded ChatGPT export from the Privacy Portal or **Settings → Data Controls → Export**: ZIP, unpacked directory, or `conversations.json`.
 
 This project is developed and tested on Ubuntu. Other Linux distributions, including other Debian-based systems, have not been verified yet. The Go CLI and Bash scripts may work there, but compatibility is not currently guaranteed. macOS and Windows are also untested.
 
@@ -21,9 +21,9 @@ Keep exports, tokens, and personal `config.env` files out of Git.
 
 ```bash
 ./scripts/build.sh
-./dist/openai-import-to-joplin ~/Downloads/chatgpt-export.zip --dry-run
+./dist/go-openai-import-to-joplin ~/Downloads/chatgpt-export.zip --dry-run
 JOPLIN_TOKEN='...' JOPLIN_CHATGPT_NOTEBOOK='ChatGPT Knowledge Base' \
-./dist/openai-import-to-joplin ~/Downloads/chatgpt-export.zip
+./dist/go-openai-import-to-joplin ~/Downloads/chatgpt-export.zip
 ```
 
 The notebook name must be unique; use its ID when names are ambiguous. `--dry-run` parses the export without contacting Joplin or writing state.
@@ -33,9 +33,9 @@ The notebook name must be unique; use its ID when names are ambiguous. `--dry-ru
 Codex CLI stores local history under `CODEX_HOME` (normally `~/.codex`). Import the `sessions` directory with `--codex`; each session becomes a note and each recorded working directory becomes a child notebook. See the official [Codex configuration](https://learn.chatgpt.com/docs/config-file/config-advanced) and [projects and chats](https://learn.chatgpt.com/docs/projects) documentation.
 
 ```bash
-./dist/openai-import-to-joplin ~/.codex/sessions --codex --dry-run
+./dist/go-openai-import-to-joplin ~/.codex/sessions --codex --dry-run
 JOPLIN_TOKEN='...' JOPLIN_CODEX_NOTEBOOK='Codex Knowledge Base' \
-./dist/openai-import-to-joplin ~/.codex/sessions --codex
+./dist/go-openai-import-to-joplin ~/.codex/sessions --codex
 ```
 
 The Codex importer preserves every JSONL record verbatim in the Markdown note, including messages, reasoning records, tool calls and outputs, token usage, world state, session metadata, and unknown future event types. This maximizes fidelity but can copy secrets, command output, local paths, and other sensitive data into Joplin. Review a dry-run count and protect the destination profile. The importer reads only the explicitly supplied JSONL file or directory; it does not read `auth.json`, connect to OpenAI, or import cloud-only chats that have no local transcript.
@@ -44,24 +44,20 @@ The Codex importer preserves every JSONL record verbatim in the Markdown note, i
 
 ```bash
 ./scripts/install.sh
-"${XDG_DATA_HOME:-$HOME/.local/share}/openai-import-to-joplin/bin/openai-import-to-joplin" --help
+"${XDG_DATA_HOME:-$HOME/.local/share}/go-openai-import-to-joplin/bin/go-openai-import-to-joplin" --help
 ./scripts/update.sh
 ```
 
-The installer builds a standalone binary under `${XDG_DATA_HOME:-$HOME/.local/share}/openai-import-to-joplin/bin`. Add that directory to your `PATH` or use the full path. Update rebuilds the current checkout. Neither script runs an import or downloads build dependencies.
-
-The project was previously named `chatgpt-import-to-joplin`. Installation copies an existing legacy `config.env` into the new configuration directory without deleting the original. When the new ChatGPT state file does not exist, ChatGPT imports automatically reuse an earlier `openai-import-to-joplin/state.json` or legacy `chatgpt-import-to-joplin/state.json` so project notebooks are not duplicated. Codex starts with its own state file; an explicit `--state` always takes precedence. Existing note identity markers remain compatible. After confirming the new installation works, the old binary may be removed manually.
-
-When migrating from Python, run `./scripts/update.sh` and replace the old `venv/bin` path in your commands or `PATH` with `bin`. Existing configuration and state remain compatible. The old virtual environment is left in place; it is no longer used by these scripts.
+The installer builds a standalone binary under `${XDG_DATA_HOME:-$HOME/.local/share}/go-openai-import-to-joplin/bin`. Add that directory to your `PATH` or use the full path. Update rebuilds the current checkout. Neither script runs an import or downloads build dependencies.
 
 ## Optional configuration
 
-The CLI accepts options and environment variables. It does not automatically load configuration files. The installer creates a shell configuration example under `${XDG_CONFIG_HOME:-$HOME/.config}/openai-import-to-joplin` and preserves an existing `config.env`.
+The CLI accepts options and environment variables. It does not automatically load configuration files. The installer creates a shell configuration example under `${XDG_CONFIG_HOME:-$HOME/.config}/go-openai-import-to-joplin` and preserves an existing `config.env`.
 
 ```bash
-nano "${XDG_CONFIG_HOME:-$HOME/.config}/openai-import-to-joplin/config.env"
-source "${XDG_CONFIG_HOME:-$HOME/.config}/openai-import-to-joplin/config.env"
-"${XDG_DATA_HOME:-$HOME/.local/share}/openai-import-to-joplin/bin/openai-import-to-joplin" ~/Downloads/chatgpt-export.zip
+nano "${XDG_CONFIG_HOME:-$HOME/.config}/go-openai-import-to-joplin/config.env"
+source "${XDG_CONFIG_HOME:-$HOME/.config}/go-openai-import-to-joplin/config.env"
+"${XDG_DATA_HOME:-$HOME/.local/share}/go-openai-import-to-joplin/bin/go-openai-import-to-joplin" ~/Downloads/chatgpt-export.zip
 ```
 
 Use [config/example.env](config/example.env) syntax: `export NAME='value'`. When upgrading, adapt preserved configuration to this format using `config.env.example`. Always pass the export path as the positional argument.
@@ -74,7 +70,7 @@ Use [config/example.env](config/example.env) syntax: `export NAME='value'`. When
 | Codex notebook | `JOPLIN_CODEX_NOTEBOOK`, falling back to legacy `JOPLIN_NOTEBOOK` |
 | `--joplin-url` | `JOPLIN_URL`, otherwise `http://127.0.0.1:41184` |
 | `--allow-insecure-http` | Explicitly allow HTTP to a non-loopback Joplin host |
-| `--state` | Source-specific `chatgpt-state.json` or `codex-state.json` under `${XDG_STATE_HOME:-$HOME/.local/state}/openai-import-to-joplin` |
+| `--state` | Source-specific `chatgpt-state.json` or `codex-state.json` under `${XDG_STATE_HOME:-$HOME/.local/state}/go-openai-import-to-joplin` |
 | `--limit NAME=VALUE` | Override one resource budget; repeatable |
 | `--dry-run` | Parse and report without importing |
 | `--codex` | Parse local Codex session JSONL instead of a ChatGPT export |
@@ -99,7 +95,7 @@ Joplin has no transaction spanning an import. If a request fails after earlier w
 
 Imports sharing one state path are serialized by an exclusive `STATE_PATH.lock` directory acquired before reading state or contacting Joplin. A competing invocation fails immediately. Normal completion, errors, and handled cancellation release the lock. After a crash or forced kill, confirm that no importer is active before removing the leftover lock directory with `rmdir`. State and project checkpoints are bound to the normalized Joplin endpoint and resolved root notebook ID; a mismatch stops before writes with an instruction to use another state path. Legacy state containing project mappings but no destination binding must be explicitly migrated after verifying its origin. Different state paths do not coordinate.
 
-The parser supports `conversations.json`, numbered `conversations*.json`, the active message branch, and optional `projects.json`/`project_id` metadata. A missing node, cycle, or absent `current_node` in a non-empty message mapping rejects the whole export instead of importing a partial or mixed branch. Without project IDs, chats go into the root notebook and the CLI prints a warning; some Privacy Portal exports omit this metadata, so project membership cannot be reconstructed from those archives. Projects without names use `ChatGPT project ID`. A JSON file argument imports that file only, with optional sibling project metadata. ZIP archives containing multiple export directories are rejected as ambiguous. Repeated, semantically identical conversation entries are deduplicated. If the same conversation ID has differing raw data anywhere in the export, the entire run is rejected with both file locations instead of choosing one by shard order or timestamp. Attachments represented as objects remain structured JSON snippets in Markdown; binary assets are not imported. Unsupported scalar message parts reject the whole export instead of being silently skipped. Validation errors identify the file and available conversation, node, and part coordinates without printing private message content.
+The parser supports exports downloaded through the Privacy Portal and **Settings → Data Controls → Export**, `conversations.json`, numbered `conversations*.json`, the active message branch, and optional `projects.json`/`project_id` metadata. Both official download paths can omit project metadata. Without project IDs, chats go into the root notebook and the CLI prints a warning because project membership cannot be reconstructed. Projects without names use `ChatGPT project ID`. A missing node, cycle, or absent `current_node` in a non-empty message mapping rejects the whole export instead of importing a partial or mixed branch. A JSON file argument imports that file only, with optional sibling project metadata. ZIP archives containing multiple export directories are rejected as ambiguous. Repeated, semantically identical conversation entries are deduplicated. If the same conversation ID has differing raw data anywhere in the export, the entire run is rejected with both file locations instead of choosing one by shard order or timestamp. Attachments represented as objects remain structured JSON snippets in Markdown; binary assets are not imported. Unsupported scalar message parts reject the whole export instead of being silently skipped. Validation errors identify the file and available conversation, node, and part coordinates without printing private message content. See the [comparison of the two official export paths](docs/chatgpt-export-source-comparison.md) for the tested snapshots and limitations.
 
 The whole export is validated before the importer opens the Joplin client or reads or writes state. A malformed export or exceeded resource budget rejects the run without skipping chats. `--dry-run` performs the same complete validation without credentials, network access, or state writes. The default budgets are:
 
@@ -127,7 +123,7 @@ Override a budget only when a trusted, valid export needs it, for example `--lim
 go test ./...
 go test -race ./...
 go vet ./...
-go run ./cmd/openai-import-to-joplin --help
+go run ./cmd/go-openai-import-to-joplin --help
 for file in scripts/*.sh config/example.env; do bash -n "$file" || break; done
 ./scripts/build.sh # standalone binary in dist/
 git diff --check

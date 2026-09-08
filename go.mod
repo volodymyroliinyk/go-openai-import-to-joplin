@@ -1,3 +1,3 @@
-module openai-import-to-joplin
+module go-openai-import-to-joplin
 
 go 1.27.1

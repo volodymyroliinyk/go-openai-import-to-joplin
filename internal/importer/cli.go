@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const usage = `Usage: openai-import-to-joplin SOURCE [options]
+const usage = `Usage: go-openai-import-to-joplin SOURCE [options]
 
 Import a ChatGPT export or local Codex session JSONL into Joplin.
   --joplin-token TOKEN  Web Clipper token (JOPLIN_TOKEN)
@@ -40,8 +40,6 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		stateRoot = filepath.Join(home, ".local", "state")
 	}
 	statePath := ""
-	openAIStatePath := filepath.Join(stateRoot, "openai-import-to-joplin", "state.json")
-	legacyStatePath := filepath.Join(stateRoot, "chatgpt-import-to-joplin", "state.json")
 	stateExplicit := false
 	notebookExplicit := false
 	source := ""
@@ -122,7 +120,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		if codex {
 			stateName = "codex-state.json"
 		}
-		statePath = filepath.Join(stateRoot, "openai-import-to-joplin", stateName)
+		statePath = filepath.Join(stateRoot, "go-openai-import-to-joplin", stateName)
 	}
 	if !dry && (token == "" || notebook == "") {
 		return invalid("--joplin-token and a destination notebook are required (use --notebook or the source-specific environment variable)")
@@ -161,15 +159,6 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		fmt.Fprintf(stdout, "Parsed %d conversations in %d projects\n", len(chats), len(projects))
 		return 0
 	}
-	if !stateExplicit {
-		var fallback bool
-		if !codex {
-			statePath, fallback = chooseStatePath(statePath, openAIStatePath, legacyStatePath)
-		}
-		if fallback {
-			fmt.Fprintf(stderr, "warning: using previous ChatGPT state path %q; pass --state to select a different file\n", statePath)
-		}
-	}
 	c, e := newClient(token, base, allowInsecureHTTP)
 	if e != nil {
 		return fail(e)
@@ -201,16 +190,4 @@ func notebookForSource(codex, explicit bool, notebook, chatGPTNotebook, codexNot
 		return chatGPTNotebook
 	}
 	return notebook
-}
-
-func chooseStatePath(current string, fallbacks ...string) (string, bool) {
-	if _, err := os.Stat(current); !os.IsNotExist(err) {
-		return current, false
-	}
-	for _, fallback := range fallbacks {
-		if _, err := os.Stat(fallback); err == nil {
-			return fallback, true
-		}
-	}
-	return current, false
 }
