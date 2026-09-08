@@ -13,7 +13,7 @@ Usage:
 
 VERSION must be a stable semantic version such as 1.2.3 (without a leading v).
 
-  changelog  Move the curated Unreleased entries to a dated VERSION section.
+  changelog  Add Conventional Commits and date the Unreleased section.
   package    Build the Linux amd64 binary and Debian amd64 package locally.
   publish    Verify main, run all checks, tag the commit, and create a GitHub release.
 EOF
@@ -34,29 +34,76 @@ require_command() {
 }
 
 prepare_changelog() {
-  local release_date temporary
+  local release_date temporary commits_file previous_tag range candidate has_unreleased_entries
   release_date="${RELEASE_DATE:-$(date -u +%F)}"
   [[ "$release_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || die "RELEASE_DATE must have the form YYYY-MM-DD"
   ! grep -Fq "## [$version]" CHANGELOG.md || die "CHANGELOG.md already contains version $version"
-  awk '
+  has_unreleased_entries=0
+  if awk '
     /^## \[Unreleased\]$/ { unreleased=1; next }
     unreleased && /^## \[/ { exit }
     unreleased && /^- / { entries=1 }
     END { exit(entries ? 0 : 1) }
-  ' CHANGELOG.md || die "the Unreleased section has no entries"
+  ' CHANGELOG.md; then
+    has_unreleased_entries=1
+  fi
 
+  require_command git
+  commits_file="$(mktemp "$project_dir/.CHANGELOG.commits.XXXXXX")"
   temporary="$(mktemp "$project_dir/.CHANGELOG.md.XXXXXX")"
-  trap 'rm -f "$temporary"' EXIT
-  awk -v heading="## [$version] - $release_date" '
+  trap 'rm -f "$temporary" "$commits_file"' EXIT
+
+  previous_tag=""
+  while IFS= read -r candidate; do
+    if [[ "$candidate" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      previous_tag="$candidate"
+      break
+    fi
+  done < <(git tag --merged HEAD --sort=-version:refname)
+  if [[ -n "$previous_tag" ]]; then
+    range="$previous_tag..HEAD"
+  else
+    range="HEAD"
+    printf 'release: no previous release tag; ignoring legacy non-Conventional Commits\n' >&2
+  fi
+
+  while IFS=$'\t' read -r commit_hash subject; do
+    [[ -n "$commit_hash" ]] || continue
+    if [[ "$subject" =~ ^(feat|fix|perf|refactor|docs|test|build|ci|chore|revert)(\([a-zA-Z0-9._/-]+\))?(!)?:[[:space:]]+.+$ ]]; then
+      printf -- '- `%s` %s\n' "${commit_hash:0:7}" "$subject" >>"$commits_file"
+    elif [[ -n "$previous_tag" ]]; then
+      die "commit ${commit_hash:0:7} is not Conventional Commits compliant: $subject"
+    fi
+  done < <(git log "$range" --reverse --no-merges --format='%H%x09%s')
+  [[ "$has_unreleased_entries" == 1 || -s "$commits_file" ]] || \
+    die "the Unreleased section and Conventional Commit list are both empty"
+
+  awk -v heading="## [$version] - $release_date" -v commits="$commits_file" '
+    function append_commits(line) {
+      if ((getline line < commits) > 0) {
+        print ""
+        print "### Included commits"
+        print ""
+        do { print line } while ((getline line < commits) > 0)
+        close(commits)
+      }
+    }
     /^## \[Unreleased\]$/ {
       print
       print ""
       print heading
+      release=1
       next
     }
+    release && /^## \[/ {
+      append_commits()
+      release=0
+    }
     { print }
+    END { if (release) append_commits() }
   ' CHANGELOG.md >"$temporary"
   mv "$temporary" CHANGELOG.md
+  rm -f "$commits_file"
   trap - EXIT
   printf 'Prepared CHANGELOG.md for %s. Review and commit it before publishing.\n' "$version"
 }
