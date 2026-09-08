@@ -134,3 +134,33 @@ git diff --check
 ```
 
 AI contributors: read [AGENTS.md](AGENTS.md) for the code map, invariants, and focused checks. Current scope: [task.md](task.md).
+
+## Creating a GitHub release
+
+Releases currently upload exactly two Linux amd64 assets: a standalone,
+distro-independent binary and a Debian package suitable for Debian-based
+distributions such as Ubuntu. Prepare the curated changelog on a development
+branch, review it, and merge it into `main`:
+
+```bash
+./scripts/release.sh changelog 1.2.3
+git add CHANGELOG.md
+git commit -m 'Prepare release 1.2.3'
+```
+
+From a clean `main` branch that exactly matches `origin/main`, publish the
+release:
+
+```bash
+git switch main
+git pull --ff-only
+./scripts/release.sh publish 1.2.3
+```
+
+Publishing runs the complete local verification suite, cross-compiles with
+`CGO_ENABLED=0`, creates an annotated `v1.2.3` tag, pushes the tag, and creates
+the GitHub release with notes taken from that version's changelog section. It
+requires `go`, `dpkg-deb`, an authenticated GitHub CLI (`gh`), and a configured
+`origin` remote. Set `RELEASE_REMOTE` only when publishing through another Git
+remote. Use `./scripts/release.sh package 1.2.3` to build both assets without
+tagging or publishing.

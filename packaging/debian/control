@@ -1,0 +1,10 @@
+Package: openai-import-to-joplin
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: openai-import-to-joplin contributors <noreply@github.com>
+Description: Import ChatGPT exports and Codex sessions into Joplin
+ A command-line importer for manually downloaded ChatGPT exports and local
+ Codex session JSONL files. It writes Markdown notes through the local Joplin
+ Web Clipper API.

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Add a guarded GitHub release script that builds a Linux amd64 binary and a Debian amd64 package, maintains dated changelog sections, and publishes exactly those two assets.
 - Import local Codex JSONL sessions with complete records, grouped into Joplin child notebooks by working directory.
 - Use separate destination notebook settings and default state files for ChatGPT and Codex imports.
 - Support `JOPLIN_CHATGPT_NOTEBOOK` and `JOPLIN_CODEX_NOTEBOOK`, while retaining `JOPLIN_NOTEBOOK` as a compatibility fallback.
@@ -25,4 +26,3 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Reject insecure token-bearing HTTP connections to non-loopback Joplin hosts unless explicitly allowed.
 - Validate export and state schemas, conflicting conversation data, duplicate identity markers, and unsafe project mappings before writes.
 - Preserve tokens and private conversation content outside logs and committed configuration.
-
