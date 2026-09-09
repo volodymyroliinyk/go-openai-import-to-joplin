@@ -7,7 +7,7 @@ config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/go-openai-import-to-joplin"
 mkdir -p "$install_dir/bin" "$config_dir"
 temporary="$(mktemp "$install_dir/bin/.go-openai-import-XXXXXX")"
 trap 'rm -f "$temporary"' EXIT
-install -m 755 "$project_dir/dist/go-openai-import-to-joplin" "$temporary"
+install -m 755 "$project_dir/dist/build/v0.0.0-dev/go-openai-import-to-joplin_0.0.0-dev_linux_amd64" "$temporary"
 mv -f "$temporary" "$install_dir/bin/go-openai-import-to-joplin"
 install -m 600 "$project_dir/config/example.env" "$config_dir/config.env.example"
 if [[ ! -e "$config_dir/config.env" ]]; then

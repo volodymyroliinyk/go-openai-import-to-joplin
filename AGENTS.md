@@ -16,7 +16,7 @@ Go 1.27.1+ CLI: manually downloaded ChatGPT export or local Codex session JSONL 
 - `internal/importer/lock.go`: exclusive state-path lock spanning state reads, Joplin access, and saves; abandoned locks require manual recovery.
 - `internal/importer/*_test.go`: parser, fake-client sync, local HTTP and CLI tests.
 - `go.mod`: minimum stable Go toolchain; no third-party dependencies.
-- `scripts/{build,install,update}.sh`: packaging and per-user CLI installation.
+- `scripts/build.sh`: versioned development binary and Debian package; `scripts/{install,update}.sh`: per-user CLI installation.
 - `config/example.env`: optional shell exports; CLI does not load it automatically.
 - `README.md`: user commands and behavior; `CHANGELOG.md`: notable user-facing changes; `task.md`: scope in Ukrainian.
 - `docs/how-to-download-your-data-way-2.md`: manual export help, unrelated to importer internals.
