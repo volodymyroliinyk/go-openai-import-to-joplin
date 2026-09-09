@@ -36,6 +36,13 @@ func TestHTTPPaginationAndWrites(t *testing.T) {
 			w.WriteHeader(204)
 		case "POST":
 			posts++
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Errorf("decode POST payload: %v", err)
+			}
+			if _, ok := payload["id"]; ok {
+				t.Error("create payload must omit empty id")
+			}
 			fmt.Fprint(w, `{"id":"new"}`)
 		}
 	}))

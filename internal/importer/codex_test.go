@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadCodexSessionsPreservesAllRecords(t *testing.T) {
@@ -31,6 +32,38 @@ func TestLoadCodexSessionsPreservesAllRecords(t *testing.T) {
 	for _, want := range []string{"session_meta", "cli_version", "user_message", "image.png", "custom_tool_call", "go test ./...", "world_state", "develop"} {
 		if !strings.Contains(c.Body, want) {
 			t.Fatalf("body omitted %q: %s", want, c.Body)
+		}
+	}
+	for _, want := range []string{"## User\n\nBuild the feature", "<summary>Tool call: shell</summary>", "<summary>Original Codex JSONL records (lossless)</summary>"} {
+		if !strings.Contains(c.Body, want) {
+			t.Fatalf("body omitted readable rendering %q: %s", want, c.Body)
+		}
+	}
+	if strings.Index(c.Body, "## User") > strings.Index(c.Body, "Original Codex JSONL records") {
+		t.Fatal("readable transcript must precede raw appendix")
+	}
+}
+
+func TestCodexReadableMessagesAndReasoning(t *testing.T) {
+	data := strings.Join([]string{
+		`{"type":"session_meta","payload":{"id":"readable"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Question"}]}}`,
+		`{"type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"Consider the options"}]}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Answer"}]}}`,
+	}, "\n") + "\n"
+	limits := DefaultLimits()
+	chat, err := parseCodexSession("session.jsonl", []byte(data), time.Unix(1, 0), limits, &exportBudget{limits: limits})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"## User\n\nQuestion", "## Reasoning\n\nConsider the options", "## Codex\n\nAnswer"} {
+		if !strings.Contains(chat.Body, want) {
+			t.Fatalf("missing %q in %s", want, chat.Body)
+		}
+	}
+	for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
+		if !strings.Contains(chat.Body, line) {
+			t.Fatalf("raw record was not preserved: %s", line)
 		}
 	}
 }
