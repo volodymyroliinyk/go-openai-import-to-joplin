@@ -4,6 +4,8 @@ Local CLI importer of a downloaded ChatGPT export or local Codex transcripts int
 
 This is an unofficial community project. It is not affiliated with or endorsed by OpenAI or Joplin.
 
+---
+
 ## Requirements
 
 - [Go 1.27.1](https://go.dev/dl/) or newer to build; the compiled binary needs no Go or Python installation.
@@ -17,13 +19,15 @@ See [download instructions](docs/how-to-download-your-data-way-2.md). The CLI re
 
 Keep exports, tokens, and personal `config.env` files out of Git.
 
+---
+
 ## Quick start
 
 ```bash
 ./scripts/build.sh
-./dist/go-openai-import-to-joplin ~/Downloads/chatgpt-export.zip --dry-run
+./dist/build/v0.0.0-dev/go-openai-import-to-joplin_0.0.0-dev_linux_amd64 ~/Downloads/chatgpt-export.zip --dry-run
 JOPLIN_TOKEN='...' JOPLIN_CHATGPT_NOTEBOOK='ChatGPT Knowledge Base' \
-./dist/go-openai-import-to-joplin ~/Downloads/chatgpt-export.zip
+./dist/build/v0.0.0-dev/go-openai-import-to-joplin_0.0.0-dev_linux_amd64 ~/Downloads/chatgpt-export.zip
 ```
 
 The notebook name must be unique; use its ID when names are ambiguous. `--dry-run` parses the export without contacting Joplin or writing state.
@@ -33,14 +37,54 @@ The notebook name must be unique; use its ID when names are ambiguous. `--dry-ru
 Codex CLI stores local history under `CODEX_HOME` (normally `~/.codex`). Import the `sessions` directory with `--codex`; each session becomes a note and each recorded working directory becomes a child notebook. See the official [Codex configuration](https://learn.chatgpt.com/docs/config-file/config-advanced) and [projects and chats](https://learn.chatgpt.com/docs/projects) documentation.
 
 ```bash
-./dist/go-openai-import-to-joplin ~/.codex/sessions --codex --dry-run
+./dist/build/v0.0.0-dev/go-openai-import-to-joplin_0.0.0-dev_linux_amd64 ~/.codex/sessions --codex --dry-run
 JOPLIN_TOKEN='...' JOPLIN_CODEX_NOTEBOOK='Codex Knowledge Base' \
-./dist/go-openai-import-to-joplin ~/.codex/sessions --codex
+./dist/build/v0.0.0-dev/go-openai-import-to-joplin_0.0.0-dev_linux_amd64 ~/.codex/sessions --codex
 ```
 
 The Codex importer renders messages, available reasoning summaries, and tool activity as a readable Markdown timeline. Tool details and metadata are collapsed, and a collapsed lossless appendix preserves every original JSONL record, including unknown future event types. This maximizes fidelity but can copy secrets, command output, local paths, and other sensitive data into Joplin. Review a dry-run count and protect the destination profile. The importer reads only the explicitly supplied JSONL file or directory; it does not read `auth.json`, connect to OpenAI, or import cloud-only chats that have no local transcript.
 
+---
+
 ## Install and update
+
+### Debian package
+
+Build and install the development package on Ubuntu or another Debian-based
+system:
+
+```bash
+./scripts/build.sh
+sudo apt install ./dist/build/v0.0.0-dev/go-openai-import-to-joplin_0.0.0-dev_amd64.deb
+go-openai-import-to-joplin --help
+```
+
+The package installs `go-openai-import-to-joplin` in `/usr/bin`, so invoke it
+directly without a `dist/` path. Validate and import a ChatGPT export with:
+
+```bash
+go-openai-import-to-joplin ~/Downloads/chatgpt-export.zip --dry-run
+JOPLIN_TOKEN='...' JOPLIN_CHATGPT_NOTEBOOK='ChatGPT Knowledge Base' \
+go-openai-import-to-joplin ~/Downloads/chatgpt-export.zip
+```
+
+For local Codex sessions:
+
+```bash
+go-openai-import-to-joplin ~/.codex/sessions --codex --dry-run
+JOPLIN_TOKEN='...' JOPLIN_CODEX_NOTEBOOK='Codex Knowledge Base' \
+go-openai-import-to-joplin ~/.codex/sessions --codex
+```
+
+Install a newly built package with the same `apt install ./path/to/package.deb`
+command to upgrade it. Remove the package without deleting importer state or
+Joplin notes with:
+
+```bash
+sudo apt remove go-openai-import-to-joplin
+```
+
+### Per-user script installation
 
 ```bash
 ./scripts/install.sh
@@ -48,7 +92,9 @@ The Codex importer renders messages, available reasoning summaries, and tool act
 ./scripts/update.sh
 ```
 
-The installer builds a standalone binary under `${XDG_DATA_HOME:-$HOME/.local/share}/go-openai-import-to-joplin/bin`. Add that directory to your `PATH` or use the full path. Update rebuilds the current checkout. Neither script runs an import or downloads build dependencies.
+The per-user installer builds a standalone binary under `${XDG_DATA_HOME:-$HOME/.local/share}/go-openai-import-to-joplin/bin`. Add that directory to your `PATH` or use the full path. Update rebuilds the current checkout. Neither script runs an import or downloads build dependencies.
+
+---
 
 ## Optional configuration
 
@@ -78,6 +124,8 @@ Use [config/example.env](config/example.env) syntax: `export NAME='value'`. When
 Prefer the environment variable for the token to keep it out of command-line arguments. Summaries go to stdout; errors go to stderr. Exit codes: `0` success, `1` import error, `2` invalid arguments.
 
 HTTPS is required when `JOPLIN_URL` points outside the local machine. Plain HTTP is accepted by default only for `localhost`, `127.0.0.0/8`, and `::1`. If a trusted private deployment cannot provide HTTPS, `--allow-insecure-http` enables the connection for that invocation and prints a warning because the token will cross the network without transport encryption.
+
+---
 
 ## Import behavior and limitations
 
@@ -117,6 +165,8 @@ The whole export is validated before the importer opens the Joplin client or rea
 
 Override a budget only when a trusted, valid export needs it, for example `--limit json-bytes=2GiB --limit conversations=150000`. Byte limits accept integer bytes or the exact `KiB`, `MiB`, and `GiB` suffixes. Errors name the exceeded budget and instruct how to retry the whole export.
 
+---
+
 ## Development
 
 ```bash
@@ -125,13 +175,21 @@ go test -race ./...
 go vet ./...
 go run ./cmd/go-openai-import-to-joplin --help
 for file in scripts/*.sh config/example.env; do bash -n "$file" || break; done
-./scripts/build.sh # standalone binary in dist/
+./scripts/build.sh # versioned standalone binary and Debian package in dist/build/
 git diff --check
 ```
 
 AI contributors: read [AGENTS.md](AGENTS.md) for the code map, invariants, and focused checks. Current scope: [task.md](task.md).
 
+---
+
 ## Creating a GitHub release
+
+`./scripts/build.sh` creates development artifacts named
+`go-openai-import-to-joplin_0.0.0-dev_linux_amd64` and
+`go-openai-import-to-joplin_0.0.0-dev_amd64.deb` under
+`dist/build/v0.0.0-dev`. Pass a stable version, such as
+`./scripts/build.sh 1.2.3`, to test the exact release filenames locally.
 
 Releases currently upload exactly two Linux amd64 assets: a standalone,
 distro-independent binary and a Debian package suitable for Debian-based

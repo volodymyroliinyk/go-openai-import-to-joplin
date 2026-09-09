@@ -109,29 +109,9 @@ prepare_changelog() {
 }
 
 package_release() {
-  local output_dir binary_name deb_name staging
-  require_command go
-  require_command dpkg-deb
-
+  local output_dir
   output_dir="$project_dir/dist/release/v$version"
-  binary_name="go-openai-import-to-joplin_${version}_linux_amd64"
-  deb_name="go-openai-import-to-joplin_${version}_amd64.deb"
-  mkdir -p "$output_dir"
-
-  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOTOOLCHAIN=local \
-    go build -trimpath -buildvcs=true -ldflags='-s -w' \
-    -o "$output_dir/$binary_name" ./cmd/go-openai-import-to-joplin
-
-  staging="$(mktemp -d "${TMPDIR:-/tmp}/go-openai-import-to-joplin-deb.XXXXXX")"
-  trap 'rm -rf "$staging"' EXIT
-  install -Dm755 "$output_dir/$binary_name" "$staging/usr/bin/go-openai-import-to-joplin"
-  mkdir -p "$staging/DEBIAN"
-  sed "s/@VERSION@/$version/" packaging/debian/control >"$staging/DEBIAN/control"
-  dpkg-deb --root-owner-group --build "$staging" "$output_dir/$deb_name" >/dev/null
-  rm -rf "$staging"
-  trap - EXIT
-
-  printf '%s\n%s\n' "$output_dir/$binary_name" "$output_dir/$deb_name"
+  BUILD_OUTPUT_DIR="$output_dir" "$project_dir/scripts/build.sh" "$version"
 }
 
 release_notes() {

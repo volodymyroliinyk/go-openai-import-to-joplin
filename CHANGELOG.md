@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Build both a versioned Linux amd64 binary and Debian package during ordinary development builds, and reuse the same packaging path for releases.
+- Document installation, ChatGPT and Codex imports, upgrades, and removal for the Debian package.
 - Render Codex sessions as readable Markdown timelines with collapsed tool details and a lossless raw-record appendix.
 - Rename the project, CLI, installation paths, Go module, and release packages to `go-openai-import-to-joplin`.
 - Translate repository documentation into English.
