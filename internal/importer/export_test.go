@@ -56,8 +56,26 @@ func TestLoadFormats(t *testing.T) {
 			t.Fatal(chats)
 		}
 		c := chats[0]
-		if c.ProjectName != "Project One" || c.UpdatedMS != 20000 || !strings.Contains(c.Body, "Question") || !strings.Contains(c.Body, "Answer") || strings.Contains(c.Body, "Old branch") || !strings.Contains(c.Body, "```json") || !strings.Contains(c.Body, "1970-01-01T00:00:10+00:00") {
+		if c.Title != "Test title" || c.ProjectName != "Project One" || c.UpdatedMS != 20000 || !strings.Contains(c.Body, "> Question") || !strings.Contains(c.Body, "Answer") || strings.Contains(c.Body, "Old branch") || !strings.Contains(c.Body, "<details>") || !strings.Contains(c.Body, "```json") || !strings.Contains(c.Body, "1970-01-01T00:00:10+00:00") {
 			t.Fatalf("unexpected chat: %+v", c)
+		}
+	}
+}
+
+func TestChatGPTTitleAndMarkdownConversationRendering(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "conversations.json")
+	write(t, p, `[{"id":"c","title":"Точна назва — [draft]","current_node":"a","mapping":{"u":{"message":{"author":{"role":"user"},"content":{"parts":["Question\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n`+"```go\\nfmt.Println(1)\\n```"+`"]}}},"a":{"parent":"u","message":{"author":{"role":"assistant"},"content":{"parts":["Answer\n\n| C | D |\n| - | - |\n| 3 | 4 |"]}}}}}]`)
+	chats, err := Load(p)
+	if err != nil || len(chats) != 1 {
+		t.Fatalf("%v %v", chats, err)
+	}
+	chat := chats[0]
+	if chat.Title != "Точна назва — [draft]" {
+		t.Fatalf("title changed: %q", chat.Title)
+	}
+	for _, want := range []string{"> Question", "> | A | B |", "> ```go", "## ChatGPT", "| C | D |"} {
+		if !strings.Contains(chat.Body, want) {
+			t.Fatalf("missing %q in %s", want, chat.Body)
 		}
 	}
 }

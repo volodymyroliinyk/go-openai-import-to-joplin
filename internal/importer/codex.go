@@ -189,6 +189,12 @@ func renderCodexEvent(body *strings.Builder, event, payload map[string]any, last
 		if text == "" || (*lastSpeaker == speaker && *lastText == text) {
 			return
 		}
+		if body.Len() > 0 {
+			body.WriteString("---\n\n")
+		}
+		if speaker == "user" {
+			text = markdownQuote(text)
+		}
 		fmt.Fprintf(body, "## %s\n\n%s\n\n", heading, text)
 		*lastSpeaker, *lastText = speaker, text
 	}
