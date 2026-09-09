@@ -34,7 +34,7 @@ func TestLoadCodexSessionsPreservesAllRecords(t *testing.T) {
 			t.Fatalf("body omitted %q: %s", want, c.Body)
 		}
 	}
-	for _, want := range []string{"## User\n\nBuild the feature", "<summary>Tool call: shell</summary>", "<summary>Original Codex JSONL records (lossless)</summary>"} {
+	for _, want := range []string{"## User\n\n> Build the feature", "<summary>Tool call: shell</summary>", "<summary>Original Codex JSONL records (lossless)</summary>"} {
 		if !strings.Contains(c.Body, want) {
 			t.Fatalf("body omitted readable rendering %q: %s", want, c.Body)
 		}
@@ -56,7 +56,7 @@ func TestCodexReadableMessagesAndReasoning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"## User\n\nQuestion", "## Reasoning\n\nConsider the options", "## Codex\n\nAnswer"} {
+	for _, want := range []string{"## User\n\n> Question", "## Reasoning\n\nConsider the options", "## Codex\n\nAnswer"} {
 		if !strings.Contains(chat.Body, want) {
 			t.Fatalf("missing %q in %s", want, chat.Body)
 		}

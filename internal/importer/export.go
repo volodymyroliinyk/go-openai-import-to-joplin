@@ -405,7 +405,7 @@ func renderLimited(c object, id string, maxBytes int64) (string, error) {
 				if e != nil {
 					return "", fmt.Errorf("conversation %q node %q part %d: %w", id, branch.nodeID, partIndex+1, e)
 				}
-				text = "```json\n" + b + "\n```"
+				text = structuredChatGPTPart(x, b)
 			default:
 				return "", fmt.Errorf("conversation %q node %q part %d has unsupported JSON type %T", id, branch.nodeID, partIndex+1, p)
 			}
@@ -445,10 +445,43 @@ func renderLimited(c object, id string, maxBytes int64) (string, error) {
 		if e := body.add("## " + label + stamp + "\n\n"); e != nil {
 			return "", e
 		}
+		if role == "user" {
+			text = markdownQuote(text)
+		}
 		if e := body.add(text); e != nil {
 			return "", e
 		}
 		messageCount++
 	}
 	return body.String(), nil
+}
+
+// markdownQuote presents prompts as conversation bubbles while keeping nested
+// Markdown (including lists, tables, and fenced code) valid inside the quote.
+func markdownQuote(text string) string {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	for i, line := range lines {
+		if line == "" {
+			lines[i] = ">"
+		} else {
+			lines[i] = "> " + line
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func structuredChatGPTPart(part object, indentedJSON string) string {
+	kind := first(part["content_type"], part["type"], "structured content")
+	if text := first(part["text"], part["message"]); text != "" {
+		return text
+	}
+	label := map[string]string{
+		"image_asset_pointer": "Image (binary attachment not imported)",
+		"audio_asset_pointer": "Audio (binary attachment not imported)",
+		"file":                "File (binary attachment not imported)",
+	}[kind]
+	if label == "" {
+		label = "Structured content: " + kind
+	}
+	return "<details>\n<summary>" + label + "</summary>\n\n```json\n" + indentedJSON + "\n```\n\n</details>"
 }
