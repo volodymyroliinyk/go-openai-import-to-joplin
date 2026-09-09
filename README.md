@@ -38,7 +38,7 @@ JOPLIN_TOKEN='...' JOPLIN_CODEX_NOTEBOOK='Codex Knowledge Base' \
 ./dist/go-openai-import-to-joplin ~/.codex/sessions --codex
 ```
 
-The Codex importer preserves every JSONL record verbatim in the Markdown note, including messages, reasoning records, tool calls and outputs, token usage, world state, session metadata, and unknown future event types. This maximizes fidelity but can copy secrets, command output, local paths, and other sensitive data into Joplin. Review a dry-run count and protect the destination profile. The importer reads only the explicitly supplied JSONL file or directory; it does not read `auth.json`, connect to OpenAI, or import cloud-only chats that have no local transcript.
+The Codex importer renders messages, available reasoning summaries, and tool activity as a readable Markdown timeline. Tool details and metadata are collapsed, and a collapsed lossless appendix preserves every original JSONL record, including unknown future event types. This maximizes fidelity but can copy secrets, command output, local paths, and other sensitive data into Joplin. Review a dry-run count and protect the destination profile. The importer reads only the explicitly supplied JSONL file or directory; it does not read `auth.json`, connect to OpenAI, or import cloud-only chats that have no local transcript.
 
 ## Install and update
 

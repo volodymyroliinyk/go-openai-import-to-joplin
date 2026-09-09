@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -14,9 +15,9 @@ import (
 	"time"
 )
 
-// LoadCodexSessions imports local Codex transcript JSONL files. Every JSONL
-// record is retained verbatim in the rendered note so unknown and future event
-// types are preserved rather than silently discarded.
+// LoadCodexSessions imports local Codex transcript JSONL files. Notes begin with
+// a readable transcript and retain every JSONL record verbatim in a collapsed
+// appendix so unknown and future event types are never silently discarded.
 func LoadCodexSessions(source string, overrides Limits) ([]Chat, error) {
 	limits := DefaultLimits()
 	for name, value := range overrides {
@@ -102,6 +103,8 @@ func parseCodexSession(path string, data []byte, modified time.Time, limits Limi
 	var id, cwd, title string
 	var created time.Time
 	var body strings.Builder
+	var rawRecords []string
+	lastSpeaker, lastText := "", ""
 	record := 0
 	for reader.Scan() {
 		line := append([]byte(nil), reader.Bytes()...)
@@ -132,17 +135,8 @@ func parseCodexSession(path string, data []byte, modified time.Time, limits Limi
 		if created.IsZero() {
 			created, _ = time.Parse(time.RFC3339Nano, first(event["timestamp"], payload["timestamp"]))
 		}
-		kind := first(event["type"], "record")
-		if subtype := str(payload["type"]); subtype != "" {
-			kind += " / " + subtype
-		}
-		fmt.Fprintf(&body, "## %s\n\n", kind)
-		for _, row := range strings.Split(string(line), "\n") {
-			body.WriteString("    ")
-			body.WriteString(row)
-			body.WriteByte('\n')
-		}
-		body.WriteByte('\n')
+		renderCodexEvent(&body, event, payload, &lastSpeaker, &lastText)
+		rawRecords = append(rawRecords, string(line))
 	}
 	if err := reader.Err(); err != nil {
 		return Chat{}, fmt.Errorf("%s: read JSONL: %w", path, err)
@@ -150,6 +144,12 @@ func parseCodexSession(path string, data []byte, modified time.Time, limits Limi
 	if record == 0 {
 		return Chat{}, fmt.Errorf("%s: empty Codex session", path)
 	}
+	body.WriteString("---\n\n<details>\n<summary>Original Codex JSONL records (lossless)</summary>\n\n```jsonl\n")
+	for _, line := range rawRecords {
+		body.WriteString(line)
+		body.WriteByte('\n')
+	}
+	body.WriteString("```\n\n</details>\n")
 	if id == "" {
 		return Chat{}, fmt.Errorf("%s: Codex session has no session_meta ID", path)
 	}
@@ -180,6 +180,90 @@ func parseCodexSession(path string, data []byte, modified time.Time, limits Limi
 		createdMS = modified.UnixMilli()
 	}
 	return Chat{ID: id, Title: title, ProjectID: projectID, ProjectName: projectName, CreatedMS: createdMS, UpdatedMS: modified.UnixMilli(), Body: body.String()}, nil
+}
+
+func renderCodexEvent(body *strings.Builder, event, payload map[string]any, lastSpeaker, lastText *string) {
+	eventType, subtype := str(event["type"]), str(payload["type"])
+	writeMessage := func(speaker, heading, text string) {
+		text = strings.TrimSpace(text)
+		if text == "" || (*lastSpeaker == speaker && *lastText == text) {
+			return
+		}
+		fmt.Fprintf(body, "## %s\n\n%s\n\n", heading, text)
+		*lastSpeaker, *lastText = speaker, text
+	}
+
+	switch eventType {
+	case "event_msg":
+		switch subtype {
+		case "user_message":
+			writeMessage("user", "User", str(payload["message"]))
+		case "agent_message":
+			writeMessage("assistant", "Codex", first(payload["message"], payload["text"]))
+		case "agent_reasoning":
+			writeMessage("reasoning", "Reasoning", first(payload["text"], payload["message"]))
+		case "token_count":
+			writeCodexDetails(body, "Token usage", payload)
+		case "agent_reasoning_section_break":
+			body.WriteString("---\n\n")
+		default:
+			writeCodexDetails(body, "Event: "+first(subtype, eventType), payload)
+		}
+	case "response_item":
+		switch subtype {
+		case "message":
+			role, heading := str(payload["role"]), "Codex"
+			if role == "user" {
+				heading = "User"
+			}
+			writeMessage(role, heading, codexContentText(payload["content"]))
+		case "reasoning":
+			writeMessage("reasoning", "Reasoning", first(codexContentText(payload["summary"]), codexContentText(payload["content"])))
+		case "function_call", "custom_tool_call", "web_search_call":
+			writeCodexDetails(body, "Tool call: "+first(payload["name"], subtype), payload)
+		case "function_call_output", "custom_tool_call_output":
+			writeCodexDetails(body, "Tool output", payload)
+		default:
+			writeCodexDetails(body, "Response item: "+first(subtype, "unknown"), payload)
+		}
+	case "session_meta":
+		writeCodexDetails(body, "Session metadata", payload)
+	case "turn_context":
+		writeCodexDetails(body, "Turn context", payload)
+	default:
+		writeCodexDetails(body, "Event: "+first(eventType, "unknown"), payload)
+	}
+}
+
+func codexContentText(value any) string {
+	switch value := value.(type) {
+	case string:
+		return value
+	case []any:
+		var parts []string
+		for _, item := range value {
+			if text := strings.TrimSpace(codexContentText(item)); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "\n\n")
+	case map[string]any:
+		return first(value["text"], value["message"], value["output"])
+	default:
+		return ""
+	}
+}
+
+func writeCodexDetails(body *strings.Builder, summary string, payload map[string]any) {
+	encoded, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(body, "<details>\n<summary>%s</summary>\n\n", summary)
+	for _, line := range strings.Split(string(encoded), "\n") {
+		fmt.Fprintf(body, "    %s\n", line)
+	}
+	body.WriteString("\n</details>\n\n")
 }
 
 func oneLine(value string, max int) string {

@@ -15,7 +15,7 @@ import (
 )
 
 type Folder struct {
-	ID       string `json:"id"`
+	ID       string `json:"id,omitempty"`
 	Title    string `json:"title"`
 	ParentID string `json:"parent_id"`
 }

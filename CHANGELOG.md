@@ -18,9 +18,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Render Codex sessions as readable Markdown timelines with collapsed tool details and a lossless raw-record appendix.
 - Rename the project, CLI, installation paths, Go module, and release packages to `go-openai-import-to-joplin`.
 - Translate repository documentation into English.
 - Document Ubuntu as the currently tested platform; other Linux distributions, macOS, and Windows remain unverified.
+
+### Fixed
+
+- Omit empty folder IDs when asking Joplin to create project notebooks.
 
 ### Security
 
