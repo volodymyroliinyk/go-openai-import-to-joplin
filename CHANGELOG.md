@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Omit empty folder IDs when asking Joplin to create project notebooks.
+- Use the indexed Codex chat name as the imported Joplin note title when importing a Codex home directory, and retain the session-ID fallback instead of treating potentially injected prompt text as a title.
 
 ### Security
 

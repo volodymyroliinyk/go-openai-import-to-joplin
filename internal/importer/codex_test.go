@@ -26,7 +26,7 @@ func TestLoadCodexSessionsPreservesAllRecords(t *testing.T) {
 		t.Fatalf("%v %v", chats, err)
 	}
 	c := chats[0]
-	if c.ID != "codex-abc" || c.Title != "Build the feature" || c.ProjectName != "demo" || !strings.HasPrefix(c.ProjectID, "codex-project-") || c.CreatedMS != 1767323045000 {
+	if c.ID != "codex-abc" || c.Title != "Codex session abc" || c.ProjectName != "demo" || !strings.HasPrefix(c.ProjectID, "codex-project-") || c.CreatedMS != 1767323045000 {
 		t.Fatalf("unexpected chat: %+v", c)
 	}
 	for _, want := range []string{"session_meta", "cli_version", "user_message", "image.png", "custom_tool_call", "go test ./...", "world_state", "develop"} {
@@ -56,6 +56,9 @@ func TestCodexReadableMessagesAndReasoning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if chat.Title != "Codex session readable" {
+		t.Fatalf("unexpected fallback title: %q", chat.Title)
+	}
 	for _, want := range []string{"## User\n\n> Question", "## Reasoning\n\nConsider the options", "## Codex\n\nAnswer"} {
 		if !strings.Contains(chat.Body, want) {
 			t.Fatalf("missing %q in %s", want, chat.Body)
@@ -65,6 +68,30 @@ func TestCodexReadableMessagesAndReasoning(t *testing.T) {
 		if !strings.Contains(chat.Body, line) {
 			t.Fatalf("raw record was not preserved: %s", line)
 		}
+	}
+}
+
+func TestLoadCodexUsesLatestIndexedThreadName(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "session_index.jsonl"), strings.Join([]string{
+		`{"id":"abc","thread_name":"Old title","updated_at":"2026-01-01T00:00:00Z"}`,
+		`{"id":"abc","thread_name":"Actual Codex chat title","updated_at":"2026-01-02T00:00:00Z"}`,
+	}, "\n")+"\n")
+	write(t, filepath.Join(dir, "history.jsonl"), `{"session_id":"abc","text":"not a transcript"}`+"\n")
+	if err := os.Mkdir(filepath.Join(dir, "sessions"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "sessions", "rollout.jsonl"), strings.Join([]string{
+		`{"type":"session_meta","payload":{"id":"abc","cwd":"/work/demo"}}`,
+		`{"type":"event_msg","payload":{"type":"user_message","message":"First prompt is not the title"}}`,
+	}, "\n")+"\n")
+
+	chats, err := LoadCodexSessions(dir, nil)
+	if err != nil || len(chats) != 1 {
+		t.Fatalf("%v %v", chats, err)
+	}
+	if chats[0].Title != "Actual Codex chat title" {
+		t.Fatalf("indexed title not used: %q", chats[0].Title)
 	}
 }
 

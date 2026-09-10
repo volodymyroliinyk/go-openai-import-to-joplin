@@ -31,6 +31,7 @@ func LoadCodexSessions(source string, overrides Limits) ([]Chat, error) {
 		return nil, err
 	}
 	var paths []string
+	var indexPath string
 	if info.IsDir() {
 		var entries uint64
 		err = filepath.WalkDir(source, func(path string, d fs.DirEntry, walkErr error) error {
@@ -45,7 +46,14 @@ func LoadCodexSessions(source string, overrides Limits) ([]Chat, error) {
 				return nil
 			}
 			if !d.IsDir() && strings.EqualFold(filepath.Ext(d.Name()), ".jsonl") {
-				paths = append(paths, path)
+				switch d.Name() {
+				case "session_index.jsonl":
+					indexPath = path
+				case "history.jsonl":
+					// Codex prompt history is not a session transcript.
+				default:
+					paths = append(paths, path)
+				}
 			}
 			return nil
 		})
@@ -65,6 +73,13 @@ func LoadCodexSessions(source string, overrides Limits) ([]Chat, error) {
 		return nil, err
 	}
 	budget := &exportBudget{limits: limits}
+	titles := map[string]string{}
+	if indexPath != "" {
+		titles, err = loadCodexSessionIndex(indexPath, limits, budget)
+		if err != nil {
+			return nil, err
+		}
+	}
 	var totalRendered uint64
 	seen := map[string]string{}
 	chats := make([]Chat, 0, len(paths))
@@ -87,6 +102,12 @@ func LoadCodexSessions(source string, overrides Limits) ([]Chat, error) {
 		if previous, ok := seen[chat.ID]; ok {
 			return nil, fmt.Errorf("duplicate Codex session ID %q in %s and %s", chat.ID, previous, path)
 		}
+		if title := titles[strings.TrimPrefix(chat.ID, "codex-")]; title != "" {
+			chat.Title = title
+			if err := checkNames(limits, chat.ID, chat.Title); err != nil {
+				return nil, fmt.Errorf("%s: %w", indexPath, err)
+			}
+		}
 		seen[chat.ID] = path
 		totalRendered += uint64(len(chat.Body))
 		if err := limits.check("render-bytes", totalRendered); err != nil {
@@ -97,10 +118,51 @@ func LoadCodexSessions(source string, overrides Limits) ([]Chat, error) {
 	return chats, nil
 }
 
+func loadCodexSessionIndex(path string, limits Limits, budget *exportBudget) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := limits.check("file-bytes", uint64(len(data))); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	titles := map[string]string{}
+	reader := bufio.NewScanner(bytes.NewReader(data))
+	reader.Buffer(make([]byte, 64<<10), int(limits["file-bytes"]))
+	record := 0
+	for reader.Scan() {
+		line := append([]byte(nil), reader.Bytes()...)
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		record++
+		guard := &guardedJSON{r: bytes.NewReader(line), budget: budget}
+		value, decodeErr := decode(guard)
+		if guard.err != nil {
+			decodeErr = guard.err
+		}
+		entry := obj(value)
+		if decodeErr != nil || entry == nil {
+			if decodeErr == nil {
+				decodeErr = fmt.Errorf("must be a JSON object")
+			}
+			return nil, fmt.Errorf("%s: JSONL record %d: %w", path, record, decodeErr)
+		}
+		id, title := str(entry["id"]), strings.TrimSpace(str(entry["thread_name"]))
+		if id != "" && title != "" {
+			titles[id] = title // The index is append-only; the latest name wins.
+		}
+	}
+	if err := reader.Err(); err != nil {
+		return nil, fmt.Errorf("%s: read JSONL: %w", path, err)
+	}
+	return titles, nil
+}
+
 func parseCodexSession(path string, data []byte, modified time.Time, limits Limits, budget *exportBudget) (Chat, error) {
 	reader := bufio.NewScanner(bytes.NewReader(data))
 	reader.Buffer(make([]byte, 64<<10), int(limits["file-bytes"]))
-	var id, cwd, title string
+	var id, cwd string
 	var created time.Time
 	var body strings.Builder
 	var rawRecords []string
@@ -129,9 +191,6 @@ func parseCodexSession(path string, data []byte, modified time.Time, limits Limi
 			id = first(payload["session_id"], payload["id"], id)
 			cwd = first(payload["cwd"], cwd)
 		}
-		if title == "" && str(event["type"]) == "event_msg" && str(payload["type"]) == "user_message" {
-			title = oneLine(str(payload["message"]), 120)
-		}
 		if created.IsZero() {
 			created, _ = time.Parse(time.RFC3339Nano, first(event["timestamp"], payload["timestamp"]))
 		}
@@ -157,9 +216,7 @@ func parseCodexSession(path string, data []byte, modified time.Time, limits Limi
 	if strings.ContainsAny(id, " \t\r\n<>") {
 		return Chat{}, fmt.Errorf("%s: invalid Codex session ID", path)
 	}
-	if title == "" {
-		title = "Codex session " + oneLine(strings.TrimPrefix(id, "codex-"), 16)
-	}
+	title := "Codex session " + oneLine(strings.TrimPrefix(id, "codex-"), 16)
 	projectID, projectName := "", ""
 	if cwd != "" {
 		hash := sha256.Sum256([]byte(filepath.Clean(cwd)))
