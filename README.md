@@ -34,12 +34,12 @@ The notebook name must be unique; use its ID when names are ambiguous. `--dry-ru
 
 ### Import local Codex sessions
 
-Codex CLI stores local history under `CODEX_HOME` (normally `~/.codex`). Import the `sessions` directory with `--codex`; each session becomes a note and each recorded working directory becomes a child notebook. See the official [Codex configuration](https://learn.chatgpt.com/docs/config-file/config-advanced) and [projects and chats](https://learn.chatgpt.com/docs/projects) documentation.
+Codex CLI stores local history under `CODEX_HOME` (normally `~/.codex`). Import that directory with `--codex`; each session becomes a note, its indexed Codex chat name becomes the note title, and each recorded working directory becomes a child notebook. Passing only the `sessions` directory remains supported, but without an indexed name the title is `Codex session ID`; prompt text is never treated as a title because it can contain injected project instructions. See the official [Codex configuration](https://learn.chatgpt.com/docs/config-file/config-advanced) and [projects and chats](https://learn.chatgpt.com/docs/projects) documentation.
 
 ```bash
-./dist/build/v0.0.0-dev/go-openai-import-to-joplin_0.0.0-dev_linux_amd64 ~/.codex/sessions --codex --dry-run
+./dist/build/v0.0.0-dev/go-openai-import-to-joplin_0.0.0-dev_linux_amd64 ~/.codex --codex --dry-run
 JOPLIN_TOKEN='...' JOPLIN_CODEX_NOTEBOOK='Codex Knowledge Base' \
-./dist/build/v0.0.0-dev/go-openai-import-to-joplin_0.0.0-dev_linux_amd64 ~/.codex/sessions --codex
+./dist/build/v0.0.0-dev/go-openai-import-to-joplin_0.0.0-dev_linux_amd64 ~/.codex --codex
 ```
 
 The Codex importer renders messages, available reasoning summaries, and tool activity as a readable Markdown timeline. Tool details and metadata are collapsed, and a collapsed lossless appendix preserves every original JSONL record, including unknown future event types. This maximizes fidelity but can copy secrets, command output, local paths, and other sensitive data into Joplin. Review a dry-run count and protect the destination profile. The importer reads only the explicitly supplied JSONL file or directory; it does not read `auth.json`, connect to OpenAI, or import cloud-only chats that have no local transcript.
@@ -71,9 +71,9 @@ go-openai-import-to-joplin ~/Downloads/chatgpt-export.zip
 For local Codex sessions:
 
 ```bash
-go-openai-import-to-joplin ~/.codex/sessions --codex --dry-run
+go-openai-import-to-joplin ~/.codex --codex --dry-run
 JOPLIN_TOKEN='...' JOPLIN_CODEX_NOTEBOOK='Codex Knowledge Base' \
-go-openai-import-to-joplin ~/.codex/sessions --codex
+go-openai-import-to-joplin ~/.codex --codex
 ```
 
 Install a newly built package with the same `apt install ./path/to/package.deb`
