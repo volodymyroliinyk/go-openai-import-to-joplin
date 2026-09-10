@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-10
+
 ### Added
 
 - Add a guarded GitHub release script that builds a Linux amd64 binary and a Debian amd64 package, maintains dated changelog sections, and publishes exactly those two assets.
@@ -37,3 +39,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Reject insecure token-bearing HTTP connections to non-loopback Joplin hosts unless explicitly allowed.
 - Validate export and state schemas, conflicting conversation data, duplicate identity markers, and unsafe project mappings before writes.
 - Preserve tokens and private conversation content outside logs and committed configuration.
+
+### Included commits
+
+- `93aa836` feat(release): automate changelog commit collection
+- `9b1cd57` refactor!: rename project to go-openai-import-to-joplin
+- `5265998` docs: update license copyright holder
+- `7ad7d99` feat(codex): render readable session notes
+- `8ad40a1` build(packaging): create deb in development builds
+- `62689a0` feat(importer): improve conversation note formatting
+- `0be7128` fix(codex): use indexed session titles
